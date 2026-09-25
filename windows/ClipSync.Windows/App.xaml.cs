@@ -1,60 +1,11 @@
-using System.Threading;
-using System.Windows;
-using ClipSync.Windows.UI;
-using ClipSync.Windows.Logging;
-using ClipSync.Windows.Theme;
-using ClipSync.Windows.Transport;
-
+using System.Threading; using System.Windows; using ClipSync.Windows.UI; using ClipSync.Windows.Logging; using ClipSync.Windows.Theme; using ClipSync.Windows.Transport; using ClipSync.Windows.Security; using ClipSync.Windows.Clipboard; using ClipSync.Core;
 namespace ClipSync.Windows;
-
-/// <summary>
-/// Application entry point. Runs as a tray app with no main window.
-/// Single instance enforced via a named mutex.
-/// </summary>
 public partial class App : System.Windows.Application
 {
-    private Mutex? _mutex;
-    private TrayIconManager? _trayIcon;
-    private TlsTestServer? _testServer;
-
-    protected override void OnStartup(StartupEventArgs e)
-    {
-        base.OnStartup(e);
-
-        // Single instance check
-        _mutex = new Mutex(true, "ClipSync-SingleInstance-48653", out bool createdNew);
-        if (!createdNew)
-        {
-            System.Windows.MessageBox.Show("ClipSync is already running.", "ClipSync",
-                MessageBoxButton.OK, MessageBoxImage.Information);
-            Shutdown();
-            return;
-        }
-
-        FileLogger.Instance.Info($"ClipSync v{ClipSync.Core.ClipSyncInfo.Version} starting");
-
-        // Initialize theme (follows OS dark/light mode)
-        ThemeManager.Initialize();
-
-        // Create tray icon — the app lives here
-        _trayIcon = new TrayIconManager();
-        _testServer = new TlsTestServer();
-        _testServer.Start();
-
-        FileLogger.Instance.Info("ClipSync started successfully");
-    }
-
-    protected override void OnExit(ExitEventArgs e)
-    {
-        FileLogger.Instance.Info("ClipSync shutting down");
-        ThemeManager.Shutdown();
-        _testServer?.Dispose();
-        _trayIcon?.Dispose();
-        _mutex?.ReleaseMutex();
-        _mutex?.Dispose();
-        FileLogger.Instance.Dispose();
-        base.OnExit(e);
-    }
+ Mutex? _mutex; TrayIconManager? _tray; StatusWindow? _window; CertificateStore? _store; SyncServer? _server; ClipboardWatcher? _clipboard; bool _paused;
+ protected override void OnStartup(StartupEventArgs e){base.OnStartup(e);_mutex=new Mutex(true,"ClipSync-SingleInstance-48653",out var created);if(!created){Shutdown();return;}FileLogger.Instance.Info("ClipSync Phase 4 starting");ThemeManager.Initialize();_store=new CertificateStore();_server=new SyncServer(_store);_clipboard=new ClipboardWatcher();_window=new StatusWindow(BeginPairing,TogglePause);_tray=new TrayIconManager(_window);
+ _server.PairingCodeAvailable+=code=>Dispatcher.Invoke(()=>_window.SetPairCode(code));_server.ConnectionChanged+=connected=>Dispatcher.Invoke(()=>_window.SetStatus(_paused?"Paused":connected?"Connected":"Waiting",connected?"Secure device connected. Clipboard sync is active.":"No device connected. Pair a device to start syncing."));_server.IncomingText+=text=>Dispatcher.Invoke(()=>{if(!_paused)_clipboard.WriteText(text);});_clipboard.TextChanged+=text=>{if(!_paused){var h=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text)));_server.Broadcast(text);FileLogger.Instance.Info($"Clipboard sent: text {text.Length} chars hash {h[..8]}");}};_server.Start();_server.BeginPairing();}
+ void BeginPairing(){_server?.BeginPairing();_window?.SetPairCode("Waiting for TestClient…");_window?.ShowPopover();}
+ bool TogglePause(){_paused=!_paused;_window?.SetStatus(_paused?"Paused": "Waiting",_paused?"Syncing is paused on this PC.":"Syncing will resume when a device connects.");return _paused;}
+ protected override void OnExit(ExitEventArgs e){FileLogger.Instance.Info("ClipSync shutting down");_clipboard?.Dispose();_server?.Dispose();_tray?.Dispose();_store?.Dispose();ThemeManager.Shutdown();_mutex?.ReleaseMutex();_mutex?.Dispose();FileLogger.Instance.Dispose();base.OnExit(e);}
 }
-
-

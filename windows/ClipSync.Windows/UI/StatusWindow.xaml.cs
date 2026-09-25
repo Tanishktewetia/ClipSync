@@ -1,40 +1,89 @@
 using System.Diagnostics;
 using System.Windows;
-using System.Windows.Media.Animation;
+using System.Windows.Media;
+using System.Windows.Media.Animation; using System.Windows.Threading; using MediaBrush = System.Windows.Media.Brush;
 using ClipSync.Windows.Logging;
 
 namespace ClipSync.Windows.UI;
 
-/// <summary>
-/// Popover-style status window. Anchored near the tray area,
-/// auto-hides on deactivation. Shows connection state prominently.
-/// </summary>
 public partial class StatusWindow : Window
 {
-    public StatusWindow()
+    private readonly Action _pair;
+    private readonly Func<bool> _pause;
+    private bool _suppressDeactivation;
+    private DispatcherTimer? _deactivationGuard;
+
+    public StatusWindow(Action pair, Func<bool> pause)
     {
+        _pair = pair;
+        _pause = pause;
         InitializeComponent();
+        ShowActivated = true;
     }
 
-    /// <summary>
-    /// Positions the window near the system tray and shows it with a fade-in.
-    /// </summary>
+    public void SetStatus(string state, string detail)
+    {
+        StatusText.Text = state;
+        StatusDetail.Text = detail;
+        var (icon, brush) = state switch
+        {
+            "Connected" => ("●", "ConnectedBrush"),
+            "Paused" => ("Ⅱ", "PausedBrush"),
+            "Error" => ("!", "ErrorBrush"),
+            _ => ("◌", "WaitingBrush")
+        };
+        StatusIcon.Text = icon;
+        StatusIcon.Foreground = (MediaBrush)FindResource(brush);
+        PauseButton.Content = state == "Paused" ? "Resume syncing" : "Pause syncing";
+    }
+
+    public void SetPairCode(string code) => PairCodeText.Text = "Your code: " + code;
+
+    public void TogglePopover()
+    {
+        if (IsVisible)
+        {
+            HidePopover();
+            return;
+        }
+        ShowPopover();
+    }
+
     public void ShowPopover()
     {
+        if (IsVisible)
+        {
+            Activate();
+            return;
+        }
+
+        _suppressDeactivation = true;
+        _deactivationGuard?.Stop();
         PositionNearTray();
+        Opacity = 0;
         Show();
         Activate();
+        Focus();
+        BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150)));
 
-        // Subtle fade-in
-        var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150));
-        BeginAnimation(OpacityProperty, fadeIn);
+        _deactivationGuard = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
+        _deactivationGuard.Tick += ClearDeactivationGuard;
+        _deactivationGuard.Start();
     }
 
-    /// <summary>
-    /// Hides the popover with a fade-out.
-    /// </summary>
+    private void ClearDeactivationGuard(object? sender, EventArgs e)
+    {
+        _deactivationGuard?.Stop();
+        _deactivationGuard = null;
+        _suppressDeactivation = false;
+    }
+
     public void HidePopover()
     {
+        if (!IsVisible) return;
+        _deactivationGuard?.Stop();
+        _deactivationGuard = null;
+        _suppressDeactivation = false;
         var fadeOut = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(100));
         fadeOut.Completed += (_, _) => Hide();
         BeginAnimation(OpacityProperty, fadeOut);
@@ -42,36 +91,27 @@ public partial class StatusWindow : Window
 
     private void PositionNearTray()
     {
-        // Position above the taskbar, right-aligned
         var workArea = SystemParameters.WorkArea;
-        Left = workArea.Right - ActualWidth - 12;
-        if (Left < workArea.Left) Left = workArea.Right - Width - 12;
+        Left = workArea.Right - Width - 12;
         Top = workArea.Bottom - Height - 12;
-        if (Top < workArea.Top) Top = workArea.Bottom - 400;
     }
 
     private void Window_Deactivated(object sender, EventArgs e)
     {
-        // Auto-hide when clicking elsewhere
+        // WinForms NotifyIcon menus briefly deactivate WPF windows while opening.
+        // Do not turn that focus transition into a lost first click.
+        if (_suppressDeactivation) return;
         HidePopover();
     }
 
+    private void Pair_Click(object sender, RoutedEventArgs e) => _pair();
+    private void Pause_Click(object sender, RoutedEventArgs e) => _pause();
+
     private void OpenLogFolder_Click(object sender, RoutedEventArgs e)
     {
-        var logDir = FileLogger.Instance.LogDirectory;
-        try
-        {
-            Process.Start("explorer.exe", logDir);
-        }
-        catch (Exception ex)
-        {
-            FileLogger.Instance.Error("Failed to open log folder", ex);
-        }
+        try { Process.Start("explorer.exe", FileLogger.Instance.LogDirectory); }
+        catch (Exception ex) { FileLogger.Instance.Error("Failed to open log folder", ex); }
     }
 
-    private void Exit_Click(object sender, RoutedEventArgs e)
-    {
-        FileLogger.Instance.Info("User requested exit via popover");
-        System.Windows.Application.Current.Shutdown();
-    }
+    private void Exit_Click(object sender, RoutedEventArgs e) => System.Windows.Application.Current.Shutdown();
 }
