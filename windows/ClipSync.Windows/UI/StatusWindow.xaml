@@ -1,0 +1,93 @@
+<Window x:Class="ClipSync.Windows.UI.StatusWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ClipSync"
+        Width="340" Height="Auto" SizeToContent="Height"
+        MaxHeight="500"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        Topmost="True"
+        ResizeMode="NoResize"
+        Deactivated="Window_Deactivated">
+
+    <Border CornerRadius="16"
+            Background="{DynamicResource BackgroundBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1"
+            Margin="8"
+            Effect="{StaticResource PopoverShadow}">
+
+        <StackPanel Margin="20">
+
+            <!-- Header -->
+            <DockPanel Margin="{DynamicResource SectionSpacing}">
+                <TextBlock Text="ClipSync"
+                           FontFamily="{DynamicResource AppFont}"
+                           FontSize="{DynamicResource FontSizeTitle}"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextPrimaryBrush}"
+                           VerticalAlignment="Center" />
+                <TextBlock Text="v0.1.0"
+                           FontFamily="{DynamicResource AppFont}"
+                           FontSize="{DynamicResource FontSizeCaption}"
+                           Foreground="{DynamicResource TextSecondaryBrush}"
+                           VerticalAlignment="Center"
+                           Margin="8,0,0,0"
+                           DockPanel.Dock="Right"
+                           HorizontalAlignment="Right" />
+            </DockPanel>
+
+            <!-- Status Card -->
+            <Border x:Name="StatusCard"
+                    CornerRadius="{DynamicResource CardCornerRadius}"
+                    Background="{DynamicResource PrimaryLightBrush}"
+                    Padding="{DynamicResource CardPadding}"
+                    Margin="{DynamicResource SectionSpacing}">
+                <StackPanel>
+                    <!-- Status indicator dot + text -->
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <Ellipse x:Name="StatusDot"
+                                 Width="12" Height="12"
+                                 Fill="{DynamicResource DisconnectedBrush}"
+                                 VerticalAlignment="Center" />
+                        <TextBlock x:Name="StatusText"
+                                   Text="Waiting"
+                                   FontFamily="{DynamicResource AppFont}"
+                                   FontSize="22"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                   Margin="12,0,0,0"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+
+                    <!-- Status detail -->
+                    <TextBlock x:Name="StatusDetail"
+                               Text="No device connected. Pair a device to start syncing."
+                               FontFamily="{DynamicResource AppFont}"
+                               FontSize="{DynamicResource FontSizeBody}"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <!-- Actions -->
+            <StackPanel Margin="0,4,0,0">
+                <!-- Open Log Folder button -->
+                <Button x:Name="OpenLogButton"
+                        Content="📁  Open Log Folder"
+                        Click="OpenLogFolder_Click"
+                        Style="{StaticResource ActionButtonStyle}"
+                        Margin="0,0,0,6" />
+
+                <!-- Exit button -->
+                <Button x:Name="ExitButton"
+                        Content="✕  Exit ClipSync"
+                        Click="Exit_Click"
+                        Style="{StaticResource SecondaryButtonStyle}" />
+            </StackPanel>
+
+        </StackPanel>
+    </Border>
+</Window>

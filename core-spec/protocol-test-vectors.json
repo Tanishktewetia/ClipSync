@@ -1,0 +1,6 @@
+# Build scripts
+.\scripts\build-windows.ps1  # Build Windows app
+.\scripts\run-windows.ps1    # Run Windows app
+.\scripts\build-android.ps1  # Build Android APK → dist/
+.\scripts\serve-apk.ps1      # Serve APK over HTTP for sideloading
+.\scripts\adb-wireless.ps1   # Connect to phone via wireless ADB

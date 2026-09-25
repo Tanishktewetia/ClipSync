@@ -1,0 +1,43 @@
+# Build output
+bin/
+obj/
+build/
+.gradle/
+app/build/
+dist/
+
+# IDE files
+.vs/
+.idea/
+*.user
+*.suo
+*.csproj.user
+*.sln.DotSettings.user
+local.properties
+
+# OS files
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Keystores and certs (dev)
+*.pfx
+*.p12
+*.keystore
+*.jks
+!scripts/*.ps1
+
+# Scratch / temp
+TODO_scratch.md
+test.txt
+notes-to-self.md
+*.tmp
+*.bak
+
+# Logs (local only)
+logs/
+*.log
+architecture.md
+plan.md
+RULES.md
+LOG.md
