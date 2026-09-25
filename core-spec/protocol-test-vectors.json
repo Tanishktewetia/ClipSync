@@ -1,6 +1,87 @@
-# Build scripts
-.\scripts\build-windows.ps1  # Build Windows app
-.\scripts\run-windows.ps1    # Run Windows app
-.\scripts\build-android.ps1  # Build Android APK → dist/
-.\scripts\serve-apk.ps1      # Serve APK over HTTP for sideloading
-.\scripts\adb-wireless.ps1   # Connect to phone via wireless ADB
+{
+  "magic": "43535031",
+  "maxPayloadLength": 1048576,
+  "frames": [
+    {
+      "name": "text",
+      "hex": "43535031010000000568656c6c6f",
+      "parsed": {
+        "type": "TEXT",
+        "text": "hello"
+      }
+    },
+    {
+      "name": "hello",
+      "hex": "43535031020000000e0000000000000007000470657265",
+      "parsed": {
+        "type": "HELLO",
+        "lamport": 7,
+        "deviceId": "pere"
+      }
+    },
+    {
+      "name": "ack",
+      "hex": "435350310300000000",
+      "parsed": {
+        "type": "ACK"
+      }
+    },
+    {
+      "name": "ping",
+      "hex": "435350310400000000",
+      "parsed": {
+        "type": "PING"
+      }
+    },
+    {
+      "name": "image",
+      "hex": "43535031050000000401020304",
+      "parsed": {
+        "type": "IMAGE",
+        "bytes": "01020304"
+      }
+    },
+    {
+      "name": "split-across-reads",
+      "hex": "43535031010000000568656c6c6f",
+      "chunks": [
+        "43535031",
+        "010000",
+        "000568",
+        "656c6c6f"
+      ],
+      "parsed": {
+        "type": "TEXT",
+        "text": "hello"
+      }
+    },
+    {
+      "name": "multi-frame",
+      "hex": "435350310300000000435350310400000000",
+      "parsed": [
+        {
+          "type": "ACK"
+        },
+        {
+          "type": "PING"
+        }
+      ]
+    },
+    {
+      "name": "unknown-type",
+      "hex": "43535031ff00000000",
+      "error": "UnknownType"
+    },
+    {
+      "name": "bad-magic",
+      "hex": "000000000100000000",
+      "error": "BadMagic"
+    },
+    {
+      "name": "oversize-length",
+      "hex": "435350310100100000",
+      "error": "OversizeLength"
+    }
+  ]
+}
+
