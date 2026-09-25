@@ -18,6 +18,7 @@ public partial class StatusWindow : Window
         _pair = pair;
         _pause = pause;
         InitializeComponent();
+        BuildLabel.Text = $"v{typeof(StatusWindow).Assembly.GetName().Version?.ToString(3)} · Text only";
         ShowActivated = true;
     }
 

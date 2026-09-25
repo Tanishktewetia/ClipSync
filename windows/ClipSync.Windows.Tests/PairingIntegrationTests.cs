@@ -1,0 +1,183 @@
+using System.Net;
+using System.Net.Security;
+using System.Net.Sockets;
+using System.Security.Authentication;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
+using ClipSync.Core;
+using ClipSync.Windows.Security;
+using ClipSync.Windows.Transport;
+using Xunit;
+
+namespace ClipSync.Windows.Tests;
+
+public sealed class PairingIntegrationTests
+{
+    [Fact] public void PairCodeMatchesAndroidVector() => Assert.Equal("830564", CertificateStore.PairCode(new string('A', 64), new string('B', 64)));
+
+    [Fact] public async Task UnknownIdentityIsRejectedOutsideExplicitPairing()
+    {
+        using var f = new Fixture(); using var peer = Identity();
+        await AssertRejected(f, peer);
+        Assert.Null(f.Store.PinnedPeer);
+    }
+    [Fact] public async Task EcPhonePairsAndReconnectsWithNoNewConfirmation()
+    {
+        using var f = new Fixture(); using var peer = Identity();
+        using (var first = await f.Pair(peer)) Assert.Equal(SslProtocols.Tls13, first.Ssl.SslProtocol);
+        using var resumed = await f.Connect(peer);
+        Assert.Equal("READY", await resumed.Line());
+        Assert.Equal(Fingerprint(peer), f.Store.PinnedPeer);
+    }
+    [Fact] public async Task WrongCodePreservesExistingTrustAndExistingSession()
+    {
+        using var f = new Fixture(); using var first = Identity(); using var stranger = Identity();
+        using var active = await f.Pair(first);
+        f.Server.BeginPairing();
+        using var candidate = await f.Connect(stranger);
+        Assert.StartsWith("PAIR|", await candidate.Line());
+        await candidate.Send("CONFIRM|not-a-code");
+        Assert.Equal("PAIR_REJECTED", await candidate.Line());
+        Assert.Equal(Fingerprint(first), f.Store.PinnedPeer);
+        f.Server.Broadcast("fixture only");
+        Assert.Equal("fixture only", await active.Text());
+    }
+    [Fact] public async Task ConfirmedReplacementRevokesOldClient()
+    {
+        using var f = new Fixture(); using var first = Identity(); using var replacement = Identity();
+        using var active = await f.Pair(first);
+        using var next = await f.Pair(replacement);
+        Assert.Equal(Fingerprint(replacement), f.Store.PinnedPeer);
+        await AssertRejected(f, first);
+        f.Server.Broadcast("replacement fixture");
+        Assert.Equal("replacement fixture", await next.Text());
+    }
+    [Fact] public async Task PairingWindowExpiresWithoutPersistingCandidate()
+    {
+        using var f = new Fixture(TimeSpan.FromMilliseconds(800)); using var peer = Identity();
+        f.Server.BeginPairing();
+        using var candidate = await f.Connect(peer);
+        Assert.StartsWith("PAIR|", await candidate.Line());
+        await Task.Delay(1000);
+        var error = await Record.ExceptionAsync(async () => {
+            await candidate.Send("CONFIRM|" + f.Server.PairCodeFor(Fingerprint(peer)));
+            Assert.NotEqual("READY", await candidate.Line());
+        });
+        Assert.False(error is Xunit.Sdk.NotEqualException);
+        Assert.Null(f.Store.PinnedPeer);
+    }
+    [Fact] public async Task FragmentedConfirmationAndUnicodeTextRemainCompatible()
+    {
+        using var f = new Fixture(); using var peer = Identity(); f.Server.BeginPairing();
+        using var connection = await f.Connect(peer);
+        var offer = (await connection.Line()).Split('|');
+        foreach (var b in Encoding.ASCII.GetBytes("CONFIRM|" + offer[2] + "\n")) await connection.Ssl.WriteAsync(new[] { b });
+        Assert.Equal("READY", await connection.Line());
+        f.Server.Broadcast("fixture ☕\nहिन्दी");
+        Assert.Equal("fixture ☕\nहिन्दी", await connection.Text());
+    }
+    [Fact] public async Task UnconfirmedClientNeverReceivesClipboardFrames()
+    {
+        using var f = new Fixture(); using var peer = Identity(); f.Server.BeginPairing();
+        using var connection = await f.Connect(peer);
+        Assert.StartsWith("PAIR|", await connection.Line());
+        f.Server.Broadcast("must not be sent");
+        using var timeout = new CancellationTokenSource(200);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await connection.Ssl.ReadExactlyAsync(new byte[1], timeout.Token));
+        Assert.Null(f.Store.PinnedPeer);
+    }
+    [Fact] public async Task PersistedPinSurvivesServerRestart()
+    {
+        var directory = Path.Combine(AppContext.BaseDirectory, "test-identities", Guid.NewGuid().ToString("N"));
+        using var peer = Identity();
+        using (var first = new Fixture(directory: directory)) using (await first.Pair(peer)) { }
+        using var restarted = new Fixture(directory: directory);
+        using var connection = await restarted.Connect(peer);
+        Assert.Equal("READY", await connection.Line());
+    }
+    private static async Task AssertRejected(Fixture fixture, X509Certificate2 identity)
+    {
+        bool ready = false;
+        try { using var peer = await fixture.Connect(identity); ready = await peer.Line() == "READY"; }
+        catch (Exception e) when (e is IOException or AuthenticationException or SocketException or OperationCanceledException) { }
+        Assert.False(ready);
+    }
+    private static string Fingerprint(X509Certificate2 cert) => Convert.ToHexString(SHA256.HashData(cert.RawData));
+    private static X509Certificate2 Identity()
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var request = new CertificateRequest("CN=ClipSync test phone", key, HashAlgorithmName.SHA256);
+        using var cert = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1));
+        return X509CertificateLoader.LoadPkcs12(cert.Export(X509ContentType.Pfx), null, X509KeyStorageFlags.UserKeySet);
+    }
+    private sealed class Fixture : IDisposable
+    {
+        public CertificateStore Store { get; }
+        public SyncServer Server { get; }
+        public Fixture(TimeSpan? duration = null, string? directory = null)
+        {
+            directory ??= Path.Combine(AppContext.BaseDirectory, "test-identities", Guid.NewGuid().ToString("N"));
+            Store = new CertificateStore(directory: directory);
+            Server = new SyncServer(Store, 0, advertise: false, pairingDuration: duration, log: _ => { });
+            Server.Start();
+        }
+        public async Task<Peer> Connect(X509Certificate2 certificate)
+        {
+            var peer = new Peer();
+            try
+            {
+                using var timeout = new CancellationTokenSource(5000);
+                await peer.Tcp.ConnectAsync(IPAddress.Loopback, Server.ListeningPort, timeout.Token);
+                peer.Ssl = new SslStream(peer.Tcp.GetStream(), false, (_, remote, _, _) => remote != null &&
+                    Convert.ToHexString(SHA256.HashData(remote.GetRawCertData())) == Store.Fingerprint);
+                await peer.Ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions {
+                    TargetHost = "ClipSync", EnabledSslProtocols = SslProtocols.Tls13,
+                    ClientCertificates = new X509CertificateCollection { certificate }, CertificateRevocationCheckMode = X509RevocationMode.NoCheck
+                }, timeout.Token);
+                return peer;
+            }
+            catch { peer.Dispose(); throw; }
+        }
+        public async Task<Peer> Pair(X509Certificate2 certificate)
+        {
+            Server.BeginPairing();
+            var peer = await Connect(certificate);
+            try {
+                var offer = (await peer.Line()).Split('|');
+                Assert.Equal("PAIR", offer[0]); Assert.Equal(Store.Fingerprint, offer[1]);
+                Assert.Equal(CertificateStore.PairCode(Store.Fingerprint, Fingerprint(certificate)), offer[2]);
+                await peer.Send("CONFIRM|" + offer[2]); Assert.Equal("READY", await peer.Line());
+                return peer;
+            } catch { peer.Dispose(); throw; }
+        }
+        public void Dispose() { Server.Dispose(); Store.Dispose(); }
+    }
+    private sealed class Peer : IDisposable
+    {
+        public TcpClient Tcp { get; } = new();
+        public SslStream Ssl { get; set; } = null!;
+        public Task Send(string line) => Ssl.WriteAsync(Encoding.ASCII.GetBytes(line + "\n")).AsTask();
+        public async Task<string> Line()
+        {
+            using var timeout = new CancellationTokenSource(5000);
+            var bytes = new List<byte>(); var one = new byte[1];
+            while (await Ssl.ReadAsync(one, timeout.Token) > 0) {
+                if (one[0] == 10) return Encoding.ASCII.GetString(bytes.ToArray());
+                bytes.Add(one[0]); if (bytes.Count > 256) throw new InvalidDataException();
+            }
+            throw new EndOfStreamException();
+        }
+        public async Task<string> Text()
+        {
+            using var timeout = new CancellationTokenSource(5000);
+            var reader = new FrameReader(); var buffer = new byte[8192];
+            while (true) {
+                var count = await Ssl.ReadAsync(buffer, timeout.Token);
+                if (count == 0) throw new EndOfStreamException();
+                foreach (var frame in reader.Push(buffer[..count])) if (frame.Type == MessageType.Text) return frame.Text!;
+            }
+        }
+        public void Dispose() { Ssl?.Dispose(); Tcp.Dispose(); }
+    }
+}

@@ -41,3 +41,6 @@ architecture.md
 plan.md
 RULES.md
 LOG.md
+
+# Automated test reports and generated identities remain local
+TestResults/
