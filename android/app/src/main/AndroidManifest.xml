@@ -5,12 +5,24 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />`n    <application
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <application
         android:name=".ClipSyncApplication"
         android:allowBackup="false"
         android:label="ClipSync"
         android:supportsRtl="true"
         android:theme="@style/Theme.ClipSync">
+
+        <activity
+            android:name=".ui.ClipboardReadActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:taskAffinity="com.clipsync.android.clipboardread"
+            android:theme="@style/Theme.ClipSync.Transparent" />
 
         <activity
             android:name=".ui.MainActivity"
@@ -22,9 +34,32 @@
             </intent-filter>
         </activity>
 
+        <service
+            android:name=".service.ClipboardWatchService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <receiver
+            android:name=".service.BootCompletedReceiver"
+            android:directBootAware="false"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <service
+            android:name=".ui.SendClipboardTileService"
+            android:enabled="@bool/qs_tile_available"
+            android:exported="true"
+            android:icon="@android:drawable/ic_menu_send"
+            android:label="Send to PC"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
     </application>
-
 </manifest>
-
-
-

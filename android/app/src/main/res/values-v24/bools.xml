@@ -1,0 +1,3 @@
+<resources>
+    <bool name="qs_tile_available">true</bool>
+</resources>
