@@ -76,7 +76,7 @@ set CLASSPATH=%APP_HOME%\gradle\wrapper\gradle-wrapper.jar
 
 :end
 @rem End local scope for the variables with windows NT shell
-if %OS%==Windows_NT endlocal
+if "%OS%"=="Windows_NT" (endlocal & exit /b %ERRORLEVEL%)
 
 :omega
 @exit /b %ERRORLEVEL%

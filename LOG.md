@@ -164,3 +164,61 @@ Tray follow-up (2026-09-25): Show Status context-menu activation is now deferred
 Tray final follow-up (2026-09-25): Show Status now always forces the popover open instead of toggling a still-visible fade-out window, eliminating the first-click no-op after deactivation.
 
 
+
+## Phase 5 — Android receive-only sync: clipboard UI constraint — 2026-09-26
+**Status:** Blocked
+**Built:**
+- Preflight only: reread RULES.md, architecture.md, and plan.md in full; confirmed the expected ClipSync Git remote and initially clean working tree.
+- Verified Android's official clipboard documentation before implementation. EXTRA_IS_SENSITIVE prevents sensitive content from appearing in the copied-content preview; it does not promise suppression of the system visual confirmation.
+- No application code, architecture, dependencies, or build artifacts changed; no build/test run performed for this preflight.
+**Files added/changed:** LOG.md only.
+**Design note (if UI):** No UI changed. Intended Phase 5 design remains the existing Material 3 identity, a status-first screen, six-digit pairing UI, Pause, and collapsed Advanced settings. The architectural question is whether an Android-owned redacted clipboard confirmation is acceptable; the app would not add a toast, snackbar, or clipboard notification.
+**Known issues:**
+- Phase 5's strict zero-popup acceptance criterion cannot be guaranteed by EXTRA_IS_SENSITIVE. Awaiting approval to proceed with automatic PC -> phone writes, sensitive preview redaction, and no app-generated copy feedback, while checking actual Motorola overlay behavior during manual testing. This is not a request for root, debugging, helper apps, or any other setup workaround.
+- Official source: https://developer.android.com/develop/ui/views/touch-and-input/copy-paste — sections “Provide feedback when copying to the clipboard” and “Add sensitive content to the clipboard.”
+- Phone -> PC remains out of Phase 5 scope. Preserve Phase 2's manual trigger approach, not auto-detection. The updated Phase 2 sections specify a quiet status notification without a send action and a primary Quick Settings tile; any notification-action change belongs to the later explicitly authorized send phase.
+**Manual test required:** yes — after implementation and APK build; no new APK is available from this preflight.
+
+## Phase 5 — Android pairing and automatic PC → phone — 2026-09-26
+**Status:** Done (built and ready for manual phone testing; uncommitted)
+**Built:**
+- Keystore EC identity, TLS 1.3 client authentication, locally verified six-digit pairing, exact peer-certificate pinning, and AES-GCM-protected pin storage with backup exclusions. Removed Android's trust-all spike.
+- Receive-only connectedDevice foreground service, quiet persistent notification, Wi-Fi lock, one-time battery-exemption request, saved manual IPv4 connection, and preserved enabled/boot behavior.
+- Sensitive-flagged automatic clipboard writes with the Kotlin core state machine, bounded hash echo guard, consecutive dedup, and failed-write safety. Existing manual tile reads suppress our own writes and do not send.
+- Final status-first Material 3 screen, Pause, six-digit confirmation dialog, collapsed Advanced/IP/Diagnostics, scoped-storage log export, light/dark contrast fixes and vector app glyphs.
+- Required Windows integration fixes: LAN listener, explicit bounded replacement pairing for the real phone after TestClient, normal-handshake pin rejection, one active confirmed session, and accurate resumed status. Preserved Phase 4 wire compatibility.
+- Verification: 26 Android JVM/core tests and 14 Windows core/TLS tests passed (40 total); APK built and v2 signature verified; Android lint 0 errors/8 warnings; Windows Release build 0 warnings/0 errors; git diff --check clean. APK: dist/ClipSync-debug-0.5.0.apk (16.08 MiB). No new library dependencies.
+**Files added/changed:** .gitignore; android/app/build.gradle.kts; android/app/src/main/AndroidManifest.xml; Android clipboard/security/store/transport/service/ui/theme files and drawable/xml resources; android/app/src/test/.../PairingProtocolTest.kt; android/core/src/main/.../Protocol.kt and ReceiveSession.kt; android/core/src/test/.../ReceiveSessionTest.kt; android/gradlew.bat; windows/ClipSync.Windows/{App.xaml.cs,Security/CertificateStore.cs,Transport/SyncServer.cs}; windows/ClipSync.Windows.Tests/*; windows/ClipSync.sln and ClipSync.slnx; docs/phase-5-report.md; LOG.md. Detailed purpose groups are in the report.
+**Design note (if UI):** Kept the existing indigo/teal identity and light/dark surfaces. One large rounded status card uses green/amber/violet/red plus meaningful icons and plain copy; Pause stays visible and technical controls collapse into Advanced. The code dialog uses six balanced digit cells and a combined accessibility label. A restrained status-color transition replaces distracting motion, and dark-mode button foregrounds were adjusted for contrast. Physical visual QA remains required.
+**Known issues:**
+- The preflight blocker above was resolved by the user's approval to continue. EXTRA_IS_SENSITIVE redacts the preview but cannot guarantee suppression of Android-owned clipboard confirmation. No architecture/plan edits were made.
+- Physical Motorola/Wi-Fi/screen-off/notification/battery/reboot/UI behavior remains untested. No emulator is configured. The existing running Windows Debug app was not stopped; exit it and run the newly built Release executable for testing.
+- Retained minSdk 24; secure sync requires platform TLS 1.3 (normally Android 10+), without insecure fallback. The real target is Android 13. Existing CSP1 framing retains its 1 MiB text cap.
+- Auto-discovery/retry/PING and phone sending/images remain out of scope. Phase 2's manual trigger was preserved; no auto-copy detection or new send action was added.
+- Eight lint warnings remain: four dependency-update notices, two existing obsolete SDK checks/resources, the explicitly requested battery exemption and reviewed custom pin trust manager.
+- Fixed the inherited malformed .sln and wrapper OS-variable quoting so verification commands work. Generated artifacts, test identities/reports, and local logs stay ignored; no staging, commit, or push.
+**Manual test required:** yes — docs/phase-5-report.md contains exact no-USB sideload, updated-Windows launch, pairing, receive, pause, screen-off, reconnect, Diagnostics, visual and optional boot/echo checks.
+
+### Phase 5 manual-test follow-up — v0.5.1 TLS correction
+**Status:** Partial — initial phone pairing failed; fix built, awaiting phone retest.
+**Evidence:** The user's Android diagnostics stamped 2026-09-26 01:44 show SSLHandshakeException before confirmation. Read-only inspection found the PC running bin/Debug/ClipSync.exe with older server behavior, not the delivered Release executable. The 0.5.0 Android Keystore policy also omitted DIGEST_NONE, required for Conscrypt's prehashed ECDSA signing. This is a concrete code defect and likely cause, but the old class-only logs cannot establish the full device exception chain.
+**Built:**
+- Fixed signing authorizations and switched to a stable v2 identity alias without deleting v1 identity, pins, or settings; upgrading needs no uninstall/data clear and uses explicit re-pairing. Added an on-device pre-connect key-authorization/signature self-test. TLS 1.3 and peer pinning remain mandatory.
+- Added privacy-safe stage/cause-class diagnostics and corrected generic TLS vs actual pin-mismatch error copy. Fixed stale Android startup version; Android and Windows now report 0.5.1.
+- Added a Windows version label and made run-windows.ps1 default to Release, with an explicit warning rather than killing an existing instance.
+- Added 12 JVM regression tests plus 2 device-only Keystore tests. All 52 local tests passed (38 Android/Kotlin, 14 Windows). Device tests compiled, not run. APK built and signature verified; lint 0 errors/8 warnings; Windows Release build 0 errors/0 warnings.
+**Files added/changed:** Android KeyStoreIdentity.kt, TlsIdentityPolicy.kt, PinnedTrustManager.kt, TlsClipboardClient.kt, ConnectionDiagnostics.kt, ClipboardWatchService.kt, ClipSyncApplication.kt, app/build.gradle.kts; new TLS policy/diagnostics unit tests and KeystoreTlsSigningTest instrumentation source; Windows App.xaml.cs, project version metadata, StatusWindow.xaml/.cs; scripts/run-windows.ps1; docs/phase-5-report.md; LOG.md.
+**Design note (if UI):** Retained the palette and status-first layout. Improved diagnostic error copy and added a spaced Windows build identifier so the tested version can be verified visually.
+**Known issues:** Hardware pairing success remains unverified. The two device-only tests are not counted as passed. PC process left running untouched; user must exit the old instance and launch the current Release build. No new dependencies or out-of-phase features.
+**Manual test required:** yes — install dist/ClipSync-debug-0.5.1.apk as an update, launch Windows showing v0.5.1, explicitly re-pair, then test PC → phone paste. Exact commands and new diagnostic markers are at the top of docs/phase-5-report.md. No staging, commit, or push.
+
+### Phase 5 acceptance — user-approved closure with Phase 6 follow-ups
+**Status:** Done — user explicitly approved committing and pushing Phase 5. Final file-list confirmation is pending under RULES.md; no commit or push has occurred yet.
+**Manual evidence:** User-supplied 0.5.1 phone diagnostics show Keystore signing success, six-digit pairing confirmation, saved peer trust, pinned reconnect, and multiple PC clipboard writes on the phone. Paste/lock/reboot and full UI quality are not claimed independently verified.
+**Deferred to Phase 6 at the user's explicit request:**
+- Closing the ClipSync UI must not stop sharing; investigate lifecycle behavior separately from explicitly stopping the service or quitting the Windows tray process.
+- Android should keep running in the background and resume after a device restart.
+- Attempt sharing while locked where Android permits; if unavailable, restore sharing immediately on unlock. Preserve the manual phone-to-PC read trigger and do not promise silent locked/background clipboard reads.
+- Fix the Windows popover's first-open position/size: the user reports an initial top-right/misplaced small panel and correct placement only on a subsequent click.
+**Scope:** These are recorded for Phase 6 only; no fixes for them were started in this closure step. Automatic discovery and unrelated Phase 7 work remain deferred.
+**Cleanup:** Generated APKs, build output, local test identities, verification logs, and test reports stay ignored. Architecture and plan documents remain unchanged.

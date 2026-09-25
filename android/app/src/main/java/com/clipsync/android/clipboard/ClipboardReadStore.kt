@@ -47,8 +47,13 @@ object ClipboardReadStore {
 
     fun recordRead(context: Context, text: String) {
         initialize(context)
+        com.clipsync.android.service.SyncRuntime.initialize(context)
+        if (com.clipsync.android.service.SyncRuntime.receiver.engine.hashGuard.observeLocal(text)) {
+            FileLogger.info("Manual read ignored: our own received clipboard")
+            return
+        }
         val count = _clipsRead.value + 1
-        val hash = text.hashCode().toUInt().toString(16).padStart(6, '0').takeLast(6)
+        val hash = com.clipsync.core.hash(text.toByteArray(Charsets.UTF_8)).take(6)
         _clipsRead.value = count
         _lastLength.value = text.length
         prefs.edit().putInt(KEY_COUNT, count).putInt(KEY_LAST_LENGTH, text.length).apply()

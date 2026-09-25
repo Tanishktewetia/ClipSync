@@ -1,166 +1,165 @@
 package com.clipsync.android.ui
 
 import android.Manifest
-import android.app.AlertDialog
-import android.app.StatusBarManager
-import android.content.ComponentName
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
-import android.content.Context
+import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.PersistableBundle
+import android.os.PowerManager
+import android.provider.MediaStore
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
 import androidx.core.content.ContextCompat
 import com.clipsync.android.clipboard.ClipboardReadStore
 import com.clipsync.android.logging.CrashHandler
 import com.clipsync.android.logging.FileLogger
+import com.clipsync.android.security.ManualAddress
 import com.clipsync.android.service.ClipboardWatchService
+import com.clipsync.android.service.SyncRuntime
+import com.clipsync.android.store.SyncSettings
 import com.clipsync.android.ui.theme.ClipSyncTheme
-import java.io.File
 
 class MainActivity : ComponentActivity() {
-    private var startAfterNotificationPermission = false
-
+    private lateinit var settings: SyncSettings
+    private var pendingAction: String? = null
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val action = pendingAction; pendingAction = null
+        if (granted && action != null) startConnection(action)
+        else SyncRuntime.update { it.copy(error = "Notification permission was declined. Tap Connect again to allow the background status notification.") }
+    }
+    private val saveDocument = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        if (uri != null) exportLogs(uri)
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        settings = SyncSettings(this)
+        pendingAction = savedInstanceState?.getString("pending_connection")
         ClipboardReadStore.initialize(this)
+        SyncRuntime.initialize(this)
         val lastCrash = CrashHandler.consumeLastCrash()
-        FileLogger.info("MainActivity created")
-
+        FileLogger.info("Phase 5 main screen opened")
         setContent {
             ClipSyncTheme {
-                val running = ClipboardReadStore.serviceRunning.collectAsState().value
-                val clipsRead = ClipboardReadStore.clipsRead.collectAsState().value
-                val lastLength = ClipboardReadStore.lastLength.collectAsState().value
                 MainScreen(
+                    state = SyncRuntime.state.collectAsState().value,
                     lastCrash = lastCrash,
-                    serviceRunning = running,
-                    clipsRead = clipsRead,
-                    lastClipLength = lastLength,
-                    onStartReader = { startReader() },
-                    onStopReader = { stopReader() },
-                    tileSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N,
-                    onOpenTileSettings = { openTileSettings() },
-                    onManualRead = { startManualRead() },
-                    onCopyLogs = { copyLogsToClipboard() },
-                    onShareLogs = { shareLogs() },
-                    onSaveLogs = { saveLogsToDownloads() },
+                    onConnect = ::connect,
+                    onPause = ::pause,
+                    onStop = ::stopConnection,
+                    onPairingAnswer = SyncRuntime::answerPairing,
+                    onCopyLogs = ::copyLogs,
+                    onShareLogs = ::shareLogs,
+                    onSaveLogs = ::saveLogs,
+                    onBatterySettings = { runCatching { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } },
                 )
             }
         }
-    }
-
-    private fun startReader() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            startAfterNotificationPermission = true
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFICATION_PERMISSION_REQUEST)
-            return
+        // Restarts only an already enabled, paired session. No background discovery.
+        if (ClipboardReadStore.isServiceEnabled(this) && !SyncRuntime.state.value.running && settings.hasPin) {
+            runCatching { ContextCompat.startForegroundService(this, Intent(this, ClipboardWatchService::class.java)) }
+                .onFailure { SyncRuntime.update { state -> state.copy(error = "Tap Reconnect to restart the background connection.") } }
         }
+    }
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("pending_connection", pendingAction)
+        super.onSaveInstanceState(outState)
+    }
+    private fun connect(address: String, pairing: Boolean) {
+        val valid = try { ManualAddress.parse(address) } catch (e: IllegalArgumentException) {
+            SyncRuntime.update { it.copy(error = e.message) }; return
+        }
+        settings.address = valid
+        SyncRuntime.update { it.copy(address = valid, error = null) }
+        val action = if (pairing) ClipboardWatchService.ACTION_PAIR else ClipboardWatchService.ACTION_CONNECT
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            pendingAction = action
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else startConnection(action)
+    }
+    private fun startConnection(action: String) {
         ClipboardReadStore.setServiceEnabled(true)
-        val serviceIntent = Intent(this, ClipboardWatchService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            ContextCompat.startForegroundService(this, serviceIntent)
-        } else {
-            startService(serviceIntent)
-        }
-        FileLogger.info("Clipboard manual reader service requested")
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == NOTIFICATION_PERMISSION_REQUEST && startAfterNotificationPermission) {
-            startAfterNotificationPermission = false
-            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) startReader()
-            else FileLogger.info("Notification permission denied; clipboard reader not started")
+        try {
+            ContextCompat.startForegroundService(this, Intent(this, ClipboardWatchService::class.java).setAction(action))
+            requestBatteryExemptionOnce()
+        } catch (e: Exception) {
+            ClipboardReadStore.setServiceEnabled(false)
+            FileLogger.warn("Service start failed: "+e.javaClass.simpleName)
+            SyncRuntime.update { it.copy(error = "Could not start the background connection. Try connecting again.") }
         }
     }
-
-    private fun stopReader() {
+    private fun requestBatteryExemptionOnce() {
+        if (settings.batteryRequested) return
+        settings.batteryRequested = true
+        if (getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)) return
+        try {
+            startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
+        } catch (e: Exception) {
+            FileLogger.warn("Battery exemption prompt unavailable: "+e.javaClass.simpleName)
+        }
+    }
+    private fun pause(paused: Boolean) {
+        settings.paused = paused
+        SyncRuntime.receiver.setPaused(paused)
+        SyncRuntime.update { it.copy(paused = paused) }
+        if (SyncRuntime.state.value.running) startService(Intent(this, ClipboardWatchService::class.java)
+            .setAction(ClipboardWatchService.ACTION_PAUSE).putExtra("paused", paused))
+    }
+    private fun stopConnection() {
         ClipboardReadStore.setServiceEnabled(false)
         stopService(Intent(this, ClipboardWatchService::class.java))
-        FileLogger.info("Clipboard watch service stopped")
     }
-
-    private fun openTileSettings() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val statusBarManager = getSystemService(StatusBarManager::class.java)
-            statusBarManager.requestAddTileService(
-                ComponentName(this, SendClipboardTileService::class.java),
-                "Send to PC",
-                android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_menu_send),
-                mainExecutor,
-            ) { result ->
-                FileLogger.info("Quick Settings tile add request completed: result=$result")
-                if (result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED) {
-                    Toast.makeText(this, "Send to PC tile added", Toast.LENGTH_SHORT).show()
-                } else {
-                    showTileInstructions()
-                }
-            }
-            FileLogger.info("Quick Settings tile add request sent")
-            return
+    private fun copyLogs() {
+        val text = FileLogger.getRecentLogs()
+        SyncRuntime.receiver.engine.hashGuard.observeLocal(text)
+        val clip = ClipData.newPlainText("ClipSync Diagnostics", text).apply {
+            description.extras = PersistableBundle().apply { putBoolean(if (Build.VERSION.SDK_INT >= 33) ClipDescription.EXTRA_IS_SENSITIVE else "android.content.extra.IS_SENSITIVE", true) }
         }
-        showTileInstructions()
+        getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
+        FileLogger.info("Diagnostics copied by user")
     }
-
-    private fun showTileInstructions() {
-        AlertDialog.Builder(this)
-            .setTitle("Add Send to PC tile")
-            .setMessage("1. Swipe down twice from the top of the screen.\n\n2. Tap the pencil or Edit button.\n\n3. Find Send to PC in the available tiles.\n\n4. Drag it into the active tiles area, then tap Done.\n\nAfter copying text, open Quick Settings and tap Send to PC.")
-            .setPositiveButton("Got it", null)
-            .show()
-        FileLogger.info("Displayed manual Quick Settings tile instructions")
-    }
-
-    private fun startManualRead() {
-        startActivity(ClipboardReadActivity.createIntent(this, "in-app"))
-        FileLogger.info("Manual clipboard read requested from ClipSync")
-    }
-
-    private fun copyLogsToClipboard() {
-        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("ClipSync Logs", FileLogger.getRecentLogs()))
-        Toast.makeText(this, "Logs copied to clipboard", Toast.LENGTH_SHORT).show()
-        FileLogger.info("Logs copied to clipboard")
-    }
-
     private fun shareLogs() {
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "ClipSync Diagnostics Logs")
+        startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"; putExtra(Intent.EXTRA_SUBJECT, "ClipSync Diagnostics")
             putExtra(Intent.EXTRA_TEXT, FileLogger.getRecentLogs())
-        }
-        startActivity(Intent.createChooser(intent, "Share ClipSync logs"))
-        FileLogger.info("Logs shared via share sheet")
+        }, "Share ClipSync diagnostics"))
     }
-
-    private fun saveLogsToDownloads() {
+    private fun saveLogs() {
+        if (Build.VERSION.SDK_INT < 29) { saveDocument.launch("clipsync-logs.txt"); return }
+        var uri: Uri? = null
         try {
-            val destination = File(
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                "clipsync-logs.txt",
-            )
-            destination.writeText(FileLogger.getAllLogs())
-            Toast.makeText(this, "Logs saved to Downloads/clipsync-logs.txt", Toast.LENGTH_SHORT).show()
-            FileLogger.info("Logs saved to Downloads")
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, "clipsync-logs-${System.currentTimeMillis()}.txt")
+                put(MediaStore.Downloads.MIME_TYPE, "text/plain")
+                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: error("No Downloads destination")
+            contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(FileLogger.getRecentLogs()) } ?: error("No output stream")
+            contentResolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
+            Toast.makeText(this, "Diagnostics saved to Downloads", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
-            Toast.makeText(this, "Failed to save: ${e.message}", Toast.LENGTH_SHORT).show()
-            FileLogger.error("Failed to save logs to Downloads", e)
+            uri?.let { runCatching { contentResolver.delete(it, null, null) } }
+            FileLogger.warn("Diagnostics save failed: ${e.javaClass.simpleName}")
+            Toast.makeText(this, "Could not save. Use Share logs instead.", Toast.LENGTH_LONG).show()
         }
     }
-
-    companion object { private const val NOTIFICATION_PERMISSION_REQUEST = 1001 }
+    private fun exportLogs(uri: Uri) {
+        try {
+            contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(FileLogger.getRecentLogs()) } ?: error("No output stream")
+            Toast.makeText(this, "Diagnostics saved", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) { FileLogger.warn("Diagnostics export failed: ${e.javaClass.simpleName}") }
+    }
 }
-
-
-

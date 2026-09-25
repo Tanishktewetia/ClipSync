@@ -1,5 +1,7 @@
 <Solution>
   <Project Path="ClipSync.Core.Tests/ClipSync.Core.Tests.csproj" />
   <Project Path="ClipSync.Core/ClipSync.Core.csproj" />
+  <Project Path="ClipSync.TestClient/ClipSync.TestClient.csproj" />
+  <Project Path="ClipSync.Windows.Tests/ClipSync.Windows.Tests.csproj" />
   <Project Path="ClipSync.Windows/ClipSync.Windows.csproj" />
 </Solution>
