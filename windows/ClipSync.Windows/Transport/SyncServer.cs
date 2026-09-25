@@ -6,6 +6,7 @@ using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Threading.Channels;
 using ClipSync.Core;
 using ClipSync.Windows.Logging;
 using ClipSync.Windows.Security;
@@ -20,6 +21,7 @@ public sealed class SyncServer : IDisposable
     private readonly CertificateStore _store;
     private readonly List<SslStream> _clients = [];
     private readonly object _gate = new();
+    private readonly Channel<string> _outgoing = Channel.CreateBounded<string>(new BoundedChannelOptions(1) { SingleReader = true, FullMode = BoundedChannelFullMode.DropOldest });
     private readonly SemaphoreSlim _pairGate = new(1, 1);
     private readonly bool _advertise;
     private readonly Action<string> _info;
@@ -48,7 +50,8 @@ public sealed class SyncServer : IDisposable
     public void Start()
     {
         _listener.Start();
-        _ = AcceptLoop();
+        _ = Task.Run(AcceptLoop);
+        _ = Task.Run(BroadcastLoop);
         if (_advertise) Advertise();
         _info($"mTLS sync server listening on Wi-Fi/LAN port {ListeningPort}");
     }
@@ -84,6 +87,8 @@ public sealed class SyncServer : IDisposable
             try
             {
                 tcp.NoDelay = true;
+                tcp.SendTimeout = 3000;
+                ssl.WriteTimeout = 3000;
                 using (var handshake = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token))
                 {
                     handshake.CancelAfter(TimeSpan.FromSeconds(10));
@@ -186,6 +191,16 @@ public sealed class SyncServer : IDisposable
         {
             _warn("Clipboard skipped: exceeds current CSP1 text limit"); return;
         }
+        _outgoing.Writer.TryWrite(text);
+    }
+    private async Task BroadcastLoop()
+    {
+        try {
+            await foreach (var text in _outgoing.Reader.ReadAllAsync(_stop.Token)) BroadcastNow(text);
+        } catch (OperationCanceledException) { }
+    }
+    private void BroadcastNow(string text)
+    {
         var frame = FrameCodec.Encode(new ClipMessage(MessageType.Text, text));
         bool removed = false; bool connected;
         lock (_gate)
@@ -212,7 +227,7 @@ public sealed class SyncServer : IDisposable
     }
     public void Dispose()
     {
-        _stop.Cancel(); _listener.Stop();
+        _outgoing.Writer.TryComplete(); _stop.Cancel(); _listener.Stop();
         lock (_gate) { foreach (var client in _clients) client.Dispose(); _clients.Clear(); }
     }
 }

@@ -1,3 +1,4 @@
+using System.IO;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -95,6 +96,37 @@ public sealed class PairingIntegrationTests
         using var restarted = new Fixture(directory: directory);
         using var connection = await restarted.Connect(peer);
         Assert.Equal("READY", await connection.Line());
+    }
+    [Fact] public async Task TenPhoneCopiesAndPcRepliesShareTheSameTlsSession()
+    {
+        using var f = new Fixture(); using var identity = Identity(); using var peer = await f.Pair(identity);
+        var received = System.Threading.Channels.Channel.CreateUnbounded<string>();
+        f.Server.IncomingText += text => received.Writer.TryWrite(text);
+        using var deadline = new CancellationTokenSource(5000);
+        for (var i = 0; i < 10; i++) {
+            var phone = "phone-fixture-" + i;
+            await peer.Ssl.WriteAsync(FrameCodec.Encode(new ClipMessage(MessageType.Text, phone)), deadline.Token);
+            Assert.Equal(phone, await received.Reader.ReadAsync(deadline.Token));
+            var pc = "pc-fixture-" + i;
+            f.Server.Broadcast(pc);
+            Assert.Equal(pc, await peer.Text());
+        }
+    }
+    [Fact] public async Task FragmentedAndCombinedPhoneFramesAreDeliveredOnceEach()
+    {
+        using var f = new Fixture(); using var identity = Identity(); using var peer = await f.Pair(identity);
+        var received = System.Threading.Channels.Channel.CreateUnbounded<string>();
+        f.Server.IncomingText += text => received.Writer.TryWrite(text);
+        using var deadline = new CancellationTokenSource(5000);
+        var frame = FrameCodec.Encode(new ClipMessage(MessageType.Text, "phone unicode ☕"));
+        foreach (var b in frame) await peer.Ssl.WriteAsync(new[] { b }, deadline.Token);
+        var two = FrameCodec.Encode(new ClipMessage(MessageType.Text, "second"));
+        var three = FrameCodec.Encode(new ClipMessage(MessageType.Text, "third"));
+        await peer.Ssl.WriteAsync(two.Concat(three).ToArray(), deadline.Token);
+        Assert.Equal("phone unicode ☕", await received.Reader.ReadAsync(deadline.Token));
+        Assert.Equal("second", await received.Reader.ReadAsync(deadline.Token));
+        Assert.Equal("third", await received.Reader.ReadAsync(deadline.Token));
+        Assert.False(received.Reader.TryRead(out _));
     }
     private static async Task AssertRejected(Fixture fixture, X509Certificate2 identity)
     {

@@ -222,3 +222,30 @@ Tray final follow-up (2026-09-25): Show Status now always forces the popover ope
 - Fix the Windows popover's first-open position/size: the user reports an initial top-right/misplaced small panel and correct placement only on a subsequent click.
 **Scope:** These are recorded for Phase 6 only; no fixes for them were started in this closure step. Automatic discovery and unrelated Phase 7 work remain deferred.
 **Cleanup:** Generated APKs, build output, local test identities, verification logs, and test reports stay ignored. Architecture and plan documents remain unchanged.
+
+### Phase 5 git completion — 2026-09-26
+The user confirmed the 44-file staging manifest. Phase 5 was committed and pushed to origin/main as **edf9060725cea37295e8ee0456f7661c140c8211**. HEAD and origin/main matched and the working tree was clean before Phase 6 began.
+
+## Phase 6 — Manual two-way sync and lifecycle/UI follow-ups — 2026-09-26
+**Status:** Done (built, ready for human hardware testing; uncommitted)
+**Built:**
+- Manual phone → PC sending from the persistent notification action and existing Quick Settings tile, via one focused/unlocked transparent activity read. No auto-detect, polling, images, content-URI conversion, or new screen.
+- Core-backed bounded manual-send scheduling, sensitive filtering, own-write/duplicate suppression, serialized pinned-TLS writes and a send watchdog. Windows applies incoming text with retry-on-lock and success-only hash marking.
+- UI-independent foreground service lifetime, explicit stopWithTask=false, persisted enabled state, guarded boot/update restore, saved-IP Wi-Fi/socket recovery and unlock refresh. PC clips while locked use a single in-memory latest slot, cleared on pause/stop/re-pair and applied after unlock.
+- Windows first-open measured-size placement, monitor/work-area/DPI bounds, stale-fade protection, roomier existing panel and distinct Hide vs Quit controls. Socket broadcasting moved off the WPF UI thread with a bounded queue.
+- Version 0.6.0 APK built and signature verified; **95 tests passed** (29 Android app, 40 Kotlin core, 5 Windows core, 21 Windows integration/UI). Android lint 0 errors/8 warnings; Windows Release build 0 errors/0 warnings. Eight offscreen Windows state/theme previews rendered; representative light/dark renders visually checked. Existing device-only Keystore tests compile but were not run.
+**Files added/changed:** see git diff plus docs/phase-6-report.md: Android core ManualSendSession/ReceiveSession, manual read/tile/service/boot/runtime/recovery policy/UI/manifest/version files and tests; Windows ClipboardWatcher, SyncServer, App/version, StatusWindow, TrayIconManager, PopoverPlacement and test files; scripts/run-windows.ps1; docs/phase-5-report.md git-completion status; docs/phase-6-report.md; LOG.md.
+**Design note (if UI):** Reused the Android Material 3 indigo/teal status-first screen with explicit manual-send guidance and feedback; no new navigation surface. The Windows tray panel keeps the identity but is a roomier 400 logical pixels, measured before positioning, with a clear hide button and separately labelled quit action. Status icons/text remain distinct in light and dark themes and fades honor Windows animation preferences.
+**Known issues:**
+- Phone notification/tile focus behavior, OEM service survival, reboot, real lock/unlock receiving, actual paste and native tray positioning still require human tests. No phone or emulator test was claimed. Force stop, system Stop-app and explicit Quit/Stop intentionally stop sharing; normal UI dismissal does not.
+- Lock handling is intentionally defer-until-unlock, latest-only in RAM. Process death loses that pending text. Copies made while disconnected are not replayed. Full discovery, heartbeat, ACK/Lamport reconciliation and images remain outside this phase.
+- Per the user's expanded Phase 6 scope, saved-manual-IP lifecycle recovery is implemented now; this is not auto-discovery. Trust/format/key errors do not retry insecurely. Notification action joins the retained manual tile; automatic copy detection remains rejected.
+- Existing 1 MiB CSP1 text limit, TLS 1.3 platform requirement and Android-owned redacted overlay limitation remain. “Sent” is stream submission, not an app-level ACK. Eight lint warnings are documented in the report; no new library dependencies.
+- The user's running Phase 5 Windows process was not killed. New Windows output is isolated at dist/windows-current/bin/ClipSync.Windows/release/ClipSync.exe to avoid locked old binaries. Quit the old instance and launch the current script for manual testing.
+**Manual test required:** yes — docs/phase-6-report.md has exact no-USB upgrade/run commands and 14 test steps for both directions, duplicate/echo/sensitive handling, Pause, UI dismissal, lock/unlock, reboot, stop, recovery, Diagnostics and popover placement. All Phase 6 work remains uncommitted; only Phase 5 has been pushed.
+
+### Phase 6 acceptance — 2026-09-26
+**Status:** Done — the user reports having tested Phase 6 successfully and explicitly approved committing/pushing it. This is human-reported hardware acceptance; the agent did not independently operate the phone.
+**Verification:** Prior build evidence remains 95 passing local tests, successful Android/Windows builds, APK signature verification and reviewed Windows render previews. No new implementation changes were made during closure.
+**Git:** Exact staging-list confirmation is pending under RULES.md; no Phase 6 staging, commit or push has occurred yet.
+**Next phase:** Phase 7 — Auto-Connect, Discovery, Reconnect: automatic hotspot/last-IP/mDNS selection, backoff and heartbeat, and newest clipboard reconciliation on reconnect. Existing Phase 6 saved-IP recovery is the starting point; discovery and full reconciliation are not yet implemented. Phase 7 has not been started.

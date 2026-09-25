@@ -7,7 +7,6 @@ import kotlinx.coroutines.flow.StateFlow
 
 object ClipboardReadStore {
     private const val PREFS = "phase2_clipboard"
-    private const val KEY_RUNNING = "service_running"
     private const val KEY_ENABLED = "service_enabled"
     private const val KEY_COUNT = "clips_read"
     private const val KEY_LAST_LENGTH = "last_length"
@@ -32,7 +31,7 @@ object ClipboardReadStore {
 
     fun setServiceEnabled(enabled: Boolean) {
         if (!initialized) return
-        prefs.edit().putBoolean(KEY_ENABLED, enabled).apply()
+        prefs.edit().putBoolean(KEY_ENABLED, enabled).commit()
     }
 
     fun isServiceEnabled(context: Context): Boolean {
@@ -47,11 +46,6 @@ object ClipboardReadStore {
 
     fun recordRead(context: Context, text: String) {
         initialize(context)
-        com.clipsync.android.service.SyncRuntime.initialize(context)
-        if (com.clipsync.android.service.SyncRuntime.receiver.engine.hashGuard.observeLocal(text)) {
-            FileLogger.info("Manual read ignored: our own received clipboard")
-            return
-        }
         val count = _clipsRead.value + 1
         val hash = com.clipsync.core.hash(text.toByteArray(Charsets.UTF_8)).take(6)
         _clipsRead.value = count

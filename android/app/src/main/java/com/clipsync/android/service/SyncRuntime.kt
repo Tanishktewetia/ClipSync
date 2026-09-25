@@ -4,6 +4,8 @@ import android.content.Context
 import com.clipsync.android.clipboard.ClipboardWriter
 import com.clipsync.android.store.SyncSettings
 import com.clipsync.core.ReceiveSession
+import com.clipsync.core.ManualSendSession
+import com.clipsync.core.ManualSendResult
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,6 +19,9 @@ data class SyncUiState(
     val paused: Boolean = false,
     val address: String = "",
     val received: Int = 0,
+    val sent: Int = 0,
+    val pendingUnlock: Boolean = false,
+    val sendFeedback: String? = null,
     val error: String? = null,
     val pairing: PairingPrompt? = null,
 ) {
@@ -29,12 +34,16 @@ object SyncRuntime {
     val state: StateFlow<SyncUiState> = mutableState
     lateinit var receiver: ReceiveSession
         private set
+    lateinit var sender: ManualSendSession
+        private set
+    var onManualSend: ((String, Boolean) -> ManualSendResult)? = null
     private var initialized = false
     private var decision: CompletableDeferred<Boolean>? = null
     fun initialize(context: Context) {
         if (initialized) return
         val settings = SyncSettings(context)
         receiver = ReceiveSession(ClipboardWriter(context.applicationContext)::write)
+        sender = ManualSendSession(receiver)
         update { it.copy(paused = settings.paused, paired = settings.hasPin, address = settings.address) }
         initialized = true
     }

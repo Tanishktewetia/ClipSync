@@ -14,19 +14,30 @@ class HashGuard {
     }
 }
 
-/** Receive-only adapter around the Phase 3 state machine and hash guard. */
+/** Platform-independent incoming path; holds at most one remote clip while locked. */
 class ReceiveSession(private val writeClipboard: (String) -> Unit) {
     val engine = SyncEngine()
+    private var deferred: String? = null
+    val hasDeferred: Boolean get() = deferred != null
+    fun clearDeferred() { deferred = null }
     var received = 0
         private set
     fun connected(paused: Boolean) { engine.connect(); if (paused) engine.pause() }
     fun setPaused(paused: Boolean) {
+        if (paused) clearDeferred()
         if (engine.state == EngineState.DISCONNECTED) return
         if (paused) engine.pause() else engine.resume()
     }
     fun disconnect() = engine.disconnect()
-    fun receive(text: String): Boolean {
+    fun flushAfterUnlock(): Boolean {
+        val text = deferred ?: return false
         if (engine.state != EngineState.CONNECTED) return false
+        return try { receive(text) } catch (error: Exception) { deferred = text; throw error }
+    }
+    fun receive(text: String, locked: Boolean = false): Boolean {
+        if (engine.state != EngineState.CONNECTED) return false
+        if (locked) { deferred = text; return false }
+        deferred = null
         val fingerprint = hash(text.toByteArray(Charsets.UTF_8))
         if (!engine.hashGuard.shouldApply(fingerprint)) return false
         // A failed platform write must not poison the dedup/echo guard.
