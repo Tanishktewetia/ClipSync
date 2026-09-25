@@ -1,7 +1,7 @@
 # Phase 5 — Android pairing and automatic PC → phone text
 
 Date: 2026-09-26 (local, Asia/Kolkata)
-Status: **Phase 5 accepted by the user for commit/push, with lifecycle/lock/unlock and Windows popover issues explicitly deferred to Phase 6. Final pre-commit file-list confirmation pending.**
+Status: **Phase 5 committed and pushed to origin/main as edf9060725cea37295e8ee0456f7661c140c8211 after user approval and file-list confirmation. Lifecycle/lock/unlock and popover follow-ups are Phase 6.**
 
 ## User acceptance and Phase 6 follow-ups
 
@@ -200,4 +200,4 @@ dotnet test 'C:\Users\tanis\Desktop\ClipSync\windows\ClipSync.sln' -c Release --
 
 Cleaned up: APKs, binaries, intermediates, Gradle cache, test reports, generated test identities and verification logs remain under ignored build/bin/obj/TestResults/dist paths. No private keys or clipboard contents were added to source control. No staging, commit, or push has occurred.
 
-User approved Phase 5 closure; awaiting confirmation of the exact staging list required by RULES.md.
+Phase 5 commit/push completed after confirmation: edf9060725cea37295e8ee0456f7661c140c8211.

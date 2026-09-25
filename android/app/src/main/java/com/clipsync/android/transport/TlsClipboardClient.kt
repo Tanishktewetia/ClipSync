@@ -3,6 +3,9 @@ package com.clipsync.android.transport
 import android.content.Context
 import com.clipsync.android.logging.FileLogger
 import android.net.ConnectivityManager
+import android.net.Network
+import com.clipsync.core.FrameCodec
+import com.clipsync.core.ClipMessage
 import android.net.NetworkCapabilities
 import com.clipsync.android.security.KeyStoreIdentity
 import com.clipsync.android.security.ManualAddress
@@ -21,7 +24,7 @@ import javax.net.ssl.SSLSocket
 
 class ConnectionProblem(message: String) : Exception(message)
 
-/** One explicitly started, Wi-Fi-bound connection. Discovery/retry belong to Phase 7. */
+/** One Wi-Fi-bound connection. Its service owns lifecycle recovery; no discovery here. */
 class TlsClipboardClient(private val context: Context, private val settings: SyncSettings) {
     @Volatile var stage = ConnectionStage.IDLE
         private set
@@ -29,24 +32,38 @@ class TlsClipboardClient(private val context: Context, private val settings: Syn
         stage = next
         FileLogger.info("Connection stage: "+next.name)
     }
+    @Volatile var network: Network? = null
+        private set
+    @Volatile private var readySocket: SSLSocket? = null
+    private val writeLock = Any()
     private var socket: Socket? = null
+    /** Serialized writes; caller owns a deadline that closes this connection on a stalled write. */
+    fun sendText(text: String) {
+        val frame = FrameCodec.encode(ClipMessage(MessageType.TEXT, text))
+        synchronized(writeLock) {
+            val active = readySocket ?: throw EOFException("Connection not ready")
+            active.outputStream.write(frame)
+            active.outputStream.flush()
+        }
+    }
     private var closed = false
     @Synchronized private fun own(next: Socket) {
         if (closed) { next.close(); throw EOFException("Connection cancelled") }
         socket = next
     }
-    @Synchronized fun close() { closed = true; runCatching { socket?.close() }; socket = null }
+    @Synchronized fun close() { closed = true; readySocket = null; runCatching { socket?.close() }; socket = null }
 
     suspend fun run(address: String, pairing: Boolean, confirm: suspend (String) -> Boolean,
                     connected: suspend () -> Unit, receive: suspend (String) -> Unit) {
         val ip = ManualAddress.parse(address)
         stage(ConnectionStage.WIFI_ROUTE)
         val manager = context.getSystemService(ConnectivityManager::class.java)
-        // One-shot Wi-Fi route selection only; network-change callbacks arrive in Phase 7.
+        // One-shot Wi-Fi route selection only. The service handles saved-IP lifecycle recovery.
         @Suppress("DEPRECATION")
         val wifi = manager.allNetworks.firstOrNull { network ->
             manager.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
         } ?: throw ConnectionProblem("Join the same Wi-Fi or PC hotspot, then tap Reconnect.")
+        network = wifi
         stage(ConnectionStage.PIN_STORAGE)
         val pin = settings.readPin()
         if (!pairing && pin == null) throw ConnectionProblem("Pair this phone with your PC first.")
@@ -96,6 +113,7 @@ class TlsClipboardClient(private val context: Context, private val settings: Syn
             currentCoroutineContext().ensureActive()
             if (pairing) { stage(ConnectionStage.PIN_SAVE); settings.pin(remote) }
             secure.soTimeout = 0
+            readySocket = secure
             stage(ConnectionStage.RECEIVING)
             connected()
             val frames = FrameReader()
@@ -106,7 +124,7 @@ class TlsClipboardClient(private val context: Context, private val settings: Syn
                 if (count < 0) throw EOFException("PC disconnected")
                 for (frame in frames.push(buffer.copyOf(count))) {
                     if (frame.type == MessageType.TEXT) receive(frame.text ?: "")
-                    // No phone clipboard frames, image pipeline or discovery in Phase 5.
+                    // Manual sends use the same authenticated socket; images/discovery remain out of scope.
                 }
             }
         } finally { close() }

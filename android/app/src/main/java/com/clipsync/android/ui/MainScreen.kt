@@ -37,7 +37,7 @@ import com.clipsync.android.ui.theme.*
 @Composable
 fun MainScreen(
     state: SyncUiState, lastCrash: String?,
-    onConnect: (String, Boolean) -> Unit, onPause: (Boolean) -> Unit, onStop: () -> Unit,
+    onConnect: (String, Boolean) -> Unit, onPause: (Boolean) -> Unit, onStop: () -> Unit, onAddTile: () -> Unit,
     onPairingAnswer: (Long, Boolean) -> Unit,
     onCopyLogs: () -> Unit, onShareLogs: () -> Unit, onSaveLogs: () -> Unit,
     onBatterySettings: () -> Unit,
@@ -48,7 +48,7 @@ fun MainScreen(
     val addressError = remember(address) { runCatching { ManualAddress.parse(address) }.exceptionOrNull()?.message }
     Scaffold(topBar = {
         TopAppBar(title = { Text("ClipSync", fontWeight = FontWeight.SemiBold) },
-            actions = { Text("PC → phone", style = MaterialTheme.typography.labelLarge,
+            actions = { Text("Two-way text", style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 20.dp)) },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
     }) { padding ->
@@ -59,8 +59,8 @@ fun MainScreen(
                 Row(Modifier.fillMaxWidth().toggleable(value = state.paused, role = Role.Switch, onValueChange = onPause)
                     .padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                        Text("Pause receiving", style = MaterialTheme.typography.titleMedium)
-                        Text(if (state.paused) "New PC copies will not replace your clipboard." else "Keep the connection, pause clipboard updates.",
+                        Text("Pause syncing", style = MaterialTheme.typography.titleMedium)
+                        Text(if (state.paused) "Clipboard updates are paused in both directions." else "Keep the connection, pause clipboard updates.",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(checked = state.paused, onCheckedChange = null)
@@ -73,9 +73,15 @@ fun MainScreen(
                     Text(if (state.paired && addressError == null) "Reconnect" else "Set up connection")
                 }
             }
-            Text("Copy on your PC. Paste on your phone.", style = MaterialTheme.typography.titleMedium)
-            Text("Receiving is automatic while ClipSync is running. Phone-to-PC sending is not enabled in this version.",
+            Text("Your clipboard, in both directions.", style = MaterialTheme.typography.titleMedium)
+            Text("PC → phone is automatic. To send from your phone, copy text and tap Send clipboard now in the notification, or use the Send to PC tile.",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Closing this screen keeps sync running. While locked, the latest PC text waits securely in memory until you unlock.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            state.sendFeedback?.let {
+                Text(it, style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+            }
             Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface) {
                 Column(Modifier.padding(16.dp)) {
                     TextButton(onClick = { advanced = !advanced }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
@@ -112,6 +118,9 @@ fun MainScreen(
                             if (state.running) OutlinedButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) {
                                 Text(if (state.connecting) "Cancel connection" else "Stop background connection")
                             }
+                            Text("Manual send shortcut", style = MaterialTheme.typography.titleMedium)
+                            Text("Optional: add Send to PC to Quick Settings. Swipe down twice → Edit/pencil → drag Send to PC into your active tiles. Copying alone never sends anything.", style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = onAddTile) { Text("Add Send to PC tile") }
                             TextButton(onClick = onBatterySettings) { Text("Battery optimization settings") }
                             HorizontalDivider()
                             Diagnostics(onCopyLogs, onShareLogs, onSaveLogs)
@@ -154,7 +163,8 @@ private fun StatusCard(state: SyncUiState) {
             Text(state.status, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold, color = accent)
             Text(state.error ?: when {
                 state.paused -> "Your phone clipboard stays as it is. Resume when you're ready."
-                state.connected -> "Your PC clipboard arrives here automatically."
+                state.pendingUnlock -> "The latest PC clipboard is waiting for your phone to unlock."
+                state.connected -> "PC copies arrive automatically. Send phone copies with one notification or tile tap."
                 state.pairing != null -> "Compare the code with your Windows app."
                 state.connecting -> "Opening a secure connection to your PC…"
                 state.paired -> "Your PC is paired. Connect when both devices are on the same Wi-Fi."
@@ -164,7 +174,7 @@ private fun StatusCard(state: SyncUiState) {
             if (state.connected) Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Outlined.Lock, contentDescription = null, tint = accent, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("Encrypted connection · ${state.received} received", style = MaterialTheme.typography.bodySmall,
+                Text("Encrypted · ${state.received} received · ${state.sent} sent", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }

@@ -50,7 +50,7 @@ class MainActivity : ComponentActivity() {
         ClipboardReadStore.initialize(this)
         SyncRuntime.initialize(this)
         val lastCrash = CrashHandler.consumeLastCrash()
-        FileLogger.info("Phase 5 main screen opened")
+        FileLogger.info("Phase 6 main screen opened")
         setContent {
             ClipSyncTheme {
                 MainScreen(
@@ -59,6 +59,7 @@ class MainActivity : ComponentActivity() {
                     onConnect = ::connect,
                     onPause = ::pause,
                     onStop = ::stopConnection,
+                    onAddTile = ::addSendTile,
                     onPairingAnswer = SyncRuntime::answerPairing,
                     onCopyLogs = ::copyLogs,
                     onShareLogs = ::shareLogs,
@@ -71,6 +72,24 @@ class MainActivity : ComponentActivity() {
         if (ClipboardReadStore.isServiceEnabled(this) && !SyncRuntime.state.value.running && settings.hasPin) {
             runCatching { ContextCompat.startForegroundService(this, Intent(this, ClipboardWatchService::class.java)) }
                 .onFailure { SyncRuntime.update { state -> state.copy(error = "Tap Reconnect to restart the background connection.") } }
+        }
+    }
+    override fun onResume() {
+        super.onResume()
+        if (::settings.isInitialized && SyncRuntime.state.value.running) {
+            startService(Intent(this, ClipboardWatchService::class.java).setAction(ClipboardWatchService.ACTION_RECOVER))
+        }
+    }
+    private fun addSendTile() {
+        if (Build.VERSION.SDK_INT >= 33) {
+            try {
+                getSystemService(android.app.StatusBarManager::class.java).requestAddTileService(
+                    android.content.ComponentName(this, SendClipboardTileService::class.java), "Send to PC",
+                    android.graphics.drawable.Icon.createWithResource(this, com.clipsync.android.R.drawable.ic_clipsync_status), mainExecutor,
+                ) { result -> FileLogger.info("Quick Settings tile request result=$result") }
+            } catch (e: Exception) { FileLogger.warn("Tile add request unavailable: "+e.javaClass.simpleName) }
+        } else {
+            Toast.makeText(this, "Swipe down twice, tap Edit, and add Send to PC.", Toast.LENGTH_LONG).show()
         }
     }
     override fun onSaveInstanceState(outState: Bundle) {
@@ -113,7 +132,8 @@ class MainActivity : ComponentActivity() {
     private fun pause(paused: Boolean) {
         settings.paused = paused
         SyncRuntime.receiver.setPaused(paused)
-        SyncRuntime.update { it.copy(paused = paused) }
+        if (paused) SyncRuntime.sender.clear()
+        SyncRuntime.update { it.copy(paused = paused, pendingUnlock = SyncRuntime.receiver.hasDeferred) }
         if (SyncRuntime.state.value.running) startService(Intent(this, ClipboardWatchService::class.java)
             .setAction(ClipboardWatchService.ACTION_PAUSE).putExtra("paused", paused))
     }

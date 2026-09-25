@@ -23,7 +23,7 @@ public sealed class TrayIconManager : IDisposable
         var menu = new ContextMenuStrip();
         menu.Items.Add("Show Status", null, (_, _) => ScheduleShowStatus());
         menu.Items.Add("Open Log Folder", null, OnOpenLogFolder);
-        menu.Items.Add("Exit", null, OnExit);
+        menu.Items.Add("Quit ClipSync (stop sharing)", null, OnExit);
         _notifyIcon.ContextMenuStrip = menu;
         FileLogger.Instance.Info("Tray icon created");
     }
@@ -37,7 +37,7 @@ public sealed class TrayIconManager : IDisposable
     private void ScheduleShowFromTray()
     {
         _statusWindow.Dispatcher.BeginInvoke(
-            new Action(() => _statusWindow.TogglePopover()),
+            new Action(() => _statusWindow.ShowPopover()),
             System.Windows.Threading.DispatcherPriority.ContextIdle);
     }
 
@@ -74,6 +74,6 @@ public sealed class TrayIconManager : IDisposable
     {
         _notifyIcon.Visible = false;
         _notifyIcon.Dispose();
-        _statusWindow.Close();
+        _statusWindow.CloseForExit();
     }
 }
