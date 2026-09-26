@@ -128,6 +128,88 @@ public sealed class PairingIntegrationTests
         Assert.Equal("third", await received.Reader.ReadAsync(deadline.Token));
         Assert.False(received.Reader.TryRead(out _));
     }
+    [Fact] public async Task NegotiatedSessionReplaysOnlyNewestAndAnswersPing()
+    {
+        using var f = new Fixture(); using var identity = Identity();
+        using (await f.Pair(identity)) { }
+        f.Server.Broadcast("older fixture"); f.Server.Broadcast("newest fixture"); await Task.Delay(100);
+        using var peer = await f.Connect(identity); Assert.Equal("READY", await peer.Line());
+        await peer.Ssl.WriteAsync(FrameCodec.Encode(SessionProtocol.Hello(null, true)));
+        Assert.Equal(MessageType.Hello, (await peer.Frame()).Type);
+        var newest = await peer.Frame(); Assert.Equal(MessageType.State, newest.Type); Assert.Equal("newest fixture", newest.Text);
+        await peer.Ssl.WriteAsync(FrameCodec.Encode(new ClipMessage(MessageType.Ping)));
+        Assert.Equal(MessageType.Pong, (await peer.Frame()).Type);
+    }
+    [Fact] public async Task ReconnectOptOutSkipsSnapshotButAcceptsLiveText()
+    {
+        using var f = new Fixture(); using var identity = Identity(); using (await f.Pair(identity)) { }
+        f.Server.Broadcast("offline fixture"); await Task.Delay(100);
+        using var peer = await f.Connect(identity); Assert.Equal("READY", await peer.Line());
+        await peer.Ssl.WriteAsync(FrameCodec.Encode(SessionProtocol.Hello(null, false)));
+        Assert.Equal(MessageType.Hello, (await peer.Frame()).Type);
+        await peer.Ssl.WriteAsync(FrameCodec.Encode(new ClipMessage(MessageType.Ping)));
+        Assert.Equal(MessageType.Pong, (await peer.Frame()).Type); // A replay would have appeared before PONG.
+        f.Server.Broadcast("live fixture"); Assert.Equal("live fixture", (await peer.Frame()).Text);
+    }
+    [Fact] public async Task NewerPhoneVersionWinsAndDuplicateIsNotAppliedTwice()
+    {
+        using var f = new Fixture(); using var identity = Identity(); using var peer = await f.Pair(identity);
+        var incoming = System.Threading.Channels.Channel.CreateUnbounded<string>(); f.Server.IncomingText += text => incoming.Writer.TryWrite(text);
+        await peer.Ssl.WriteAsync(FrameCodec.Encode(SessionProtocol.Hello(null, true))); await peer.Frame();
+        var update = new ClipMessage(MessageType.State, Text: "phone version fixture", Lamport: 20, DeviceId: "phone");
+        await peer.Ssl.WriteAsync(FrameCodec.Encode(update)); await peer.Ssl.WriteAsync(FrameCodec.Encode(update));
+        await peer.Ssl.WriteAsync(FrameCodec.Encode(new ClipMessage(MessageType.Ping))); Assert.Equal(MessageType.Pong, (await peer.Frame()).Type);
+        Assert.True(incoming.Reader.TryRead(out var text)); Assert.Equal(update.Text, text); Assert.False(incoming.Reader.TryRead(out _));
+        f.Server.Broadcast("next PC fixture"); Assert.Equal(23, (await peer.Frame()).Lamport);
+    }
+    [Fact] public async Task DisabledReplayStillObservesPeerClockForNextLiveCopy()
+    {
+        using var f = new Fixture(); using var identity = Identity(); using var peer = await f.Pair(identity);
+        f.Server.ReplayOnConnect = false;
+        var known = new ClipMessage(MessageType.State, Text: "not transmitted", Lamport: 100, DeviceId: "phone");
+        await peer.Ssl.WriteAsync(FrameCodec.Encode(SessionProtocol.Hello(known, false)));
+        Assert.False(SessionProtocol.Replay(await peer.Frame()));
+        f.Server.Broadcast("fresh PC fixture"); Assert.Equal(102, (await peer.Frame()).Lamport);
+    }
+    [Fact] public async Task PausedServerDoesNotApplyVersionedPhoneText()
+    {
+        using var f = new Fixture(); using var identity = Identity(); using var peer = await f.Pair(identity);
+        var called = false; f.Server.IncomingText += _ => called = true; f.Server.Paused = true;
+        await peer.Ssl.WriteAsync(FrameCodec.Encode(SessionProtocol.Hello(null, true))); Assert.False(SessionProtocol.Replay(await peer.Frame()));
+        await peer.Ssl.WriteAsync(FrameCodec.Encode(new ClipMessage(MessageType.State, Text: "paused fixture", Lamport: 1, DeviceId: "phone")));
+        await peer.Ssl.WriteAsync(FrameCodec.Encode(new ClipMessage(MessageType.Ping))); Assert.Equal(MessageType.Pong, (await peer.Frame()).Type); Assert.False(called);
+    }
+    [Fact] public async Task TwoMissedHeartbeatsRetireHalfOpenSession()
+    {
+        using var f = new Fixture(heartbeat: TimeSpan.FromMilliseconds(100)); using var identity = Identity(); using var peer = await f.Pair(identity);
+        await peer.Ssl.WriteAsync(FrameCodec.Encode(SessionProtocol.Hello(null, true))); Assert.Equal(MessageType.Hello, (await peer.Frame()).Type);
+        Assert.Equal(MessageType.Ping, (await peer.Frame()).Type);
+        // Deliberately withhold PONG. The server must close without waiting on TCP's long timeout.
+        using var deadline = new CancellationTokenSource(3000);
+        var buffer = new byte[4096]; int read;
+        try { do { read = await peer.Ssl.ReadAsync(buffer, deadline.Token); } while (read != 0); }
+        catch (IOException) { read = 0; }
+        Assert.Equal(0, read);
+    }
+    [Fact] public async Task FailedClipboardSinkLeavesVersionReplayable()
+    {
+        using var f = new Fixture(); using var identity = Identity();
+        var update = new ClipMessage(MessageType.State, Text: "retry fixture", Lamport: 5, DeviceId: "phone");
+        f.Server.ClipboardSink = _ => false;
+        using (var peer = await f.Pair(identity)) {
+            await peer.Ssl.WriteAsync(FrameCodec.Encode(SessionProtocol.Hello(update, true))); await peer.Frame();
+            await peer.Ssl.WriteAsync(FrameCodec.Encode(update));
+            using var deadline = new CancellationTokenSource(3000);
+            Assert.Equal(0, await peer.Ssl.ReadAsync(new byte[1], deadline.Token));
+        }
+        var applied = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        f.Server.ClipboardSink = text => { applied.TrySetResult(text); return true; };
+        using var retry = await f.Connect(identity); Assert.Equal("READY", await retry.Line());
+        await retry.Ssl.WriteAsync(FrameCodec.Encode(SessionProtocol.Hello(update, true)));
+        Assert.Equal(0, (await retry.Frame()).Lamport);
+        await retry.Ssl.WriteAsync(FrameCodec.Encode(update));
+        Assert.Equal(update.Text, await applied.Task.WaitAsync(TimeSpan.FromSeconds(3)));
+    }
     private static async Task AssertRejected(Fixture fixture, X509Certificate2 identity)
     {
         bool ready = false;
@@ -147,11 +229,11 @@ public sealed class PairingIntegrationTests
     {
         public CertificateStore Store { get; }
         public SyncServer Server { get; }
-        public Fixture(TimeSpan? duration = null, string? directory = null)
+        public Fixture(TimeSpan? duration = null, string? directory = null, TimeSpan? heartbeat = null)
         {
             directory ??= Path.Combine(AppContext.BaseDirectory, "test-identities", Guid.NewGuid().ToString("N"));
             Store = new CertificateStore(directory: directory);
-            Server = new SyncServer(Store, 0, advertise: false, pairingDuration: duration, log: _ => { });
+            Server = new SyncServer(Store, 0, advertise: false, pairingDuration: duration, log: _ => { }, heartbeatInterval: heartbeat);
             Server.Start();
         }
         public async Task<Peer> Connect(X509Certificate2 certificate)
@@ -199,6 +281,15 @@ public sealed class PairingIntegrationTests
                 bytes.Add(one[0]); if (bytes.Count > 256) throw new InvalidDataException();
             }
             throw new EndOfStreamException();
+        }
+        public async Task<ClipMessage> Frame()
+        {
+            using var timeout = new CancellationTokenSource(5000);
+            var header = new byte[9]; await Ssl.ReadExactlyAsync(header, timeout.Token);
+            var length = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(header.AsSpan(5));
+            Assert.InRange(length, 0, FrameCodec.MaxPayloadLength);
+            var payload = new byte[length]; await Ssl.ReadExactlyAsync(payload, timeout.Token);
+            return FrameCodec.Decode(header.Concat(payload).ToArray());
         }
         public async Task<string> Text()
         {

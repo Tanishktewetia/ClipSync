@@ -25,7 +25,7 @@ data class SyncUiState(
     val error: String? = null,
     val pairing: PairingPrompt? = null,
 ) {
-    val status: String get() = when { error != null -> "Error"; paused -> "Paused"; connected -> "Connected"; else -> "Waiting" }
+    val status: String get() = when { paused -> "Paused"; error != null -> "Error"; connected -> "Connected"; else -> "Waiting" }
 }
 
 /** Process-local state. Mutated on the main thread, including clipboard writes. */

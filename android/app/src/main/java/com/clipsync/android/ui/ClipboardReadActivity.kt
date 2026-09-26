@@ -43,7 +43,7 @@ class ClipboardReadActivity : Activity() {
             }
             val state = SyncRuntime.state.value
             if (state.paused) { feedback("Not sent: syncing is paused."); return }
-            if (!state.connected || SyncRuntime.onManualSend == null) {
+            if (!state.paired || SyncRuntime.onManualSend == null) {
                 feedback("Not sent: wait for Connected, then tap Send again."); return
             }
             val clip = getSystemService(ClipboardManager::class.java).primaryClip

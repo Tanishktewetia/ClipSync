@@ -41,19 +41,23 @@ fun MainScreen(
     onPairingAnswer: (Long, Boolean) -> Unit,
     onCopyLogs: () -> Unit, onShareLogs: () -> Unit, onSaveLogs: () -> Unit,
     onBatterySettings: () -> Unit,
+    replayOnConnect: Boolean, onReplayChanged: (Boolean) -> Unit,
 ) {
+    var help by rememberSaveable { mutableStateOf(false) }
+    val links = androidx.compose.ui.platform.LocalUriHandler.current
+    if (help) { HelpScreen(onBack = { help = false }, onAddTile = onAddTile); return }
     var advanced by rememberSaveable { mutableStateOf(false) }
     var address by rememberSaveable(state.address) { mutableStateOf(state.address) }
     var crashVisible by rememberSaveable { mutableStateOf(lastCrash != null) }
-    val addressError = remember(address) { runCatching { ManualAddress.parse(address) }.exceptionOrNull()?.message }
+    val addressError = remember(address) { runCatching { if (address.isBlank()) "" else ManualAddress.parse(address) }.exceptionOrNull()?.message }
     Scaffold(topBar = {
         TopAppBar(title = { Text("ClipSync", fontWeight = FontWeight.SemiBold) },
-            actions = { Text("Two-way text", style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 20.dp)) },
+            actions = { TextButton(onClick = { help = true }) { Icon(Icons.Outlined.HelpOutline, null); Spacer(Modifier.width(6.dp)); Text("Guide") } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp).widthIn(max = 600.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text("YOUR DEVICES, IN SYNC", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             StatusCard(state)
             Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface) {
                 Row(Modifier.fillMaxWidth().toggleable(value = state.paused, role = Role.Switch, onValueChange = onPause)
@@ -68,16 +72,38 @@ fun MainScreen(
             }
             if (!advanced && !state.connected && !state.connecting) {
                 Button(onClick = {
-                    if (state.paired && addressError == null) onConnect(address, false) else advanced = true
+                    onConnect(address, !state.paired)
                 }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
-                    Text(if (state.paired && addressError == null) "Reconnect" else "Set up connection")
+                    Text(if (state.paired) "Find my PC" else "Find & pair my PC")
                 }
             }
-            Text("Your clipboard, in both directions.", style = MaterialTheme.typography.titleMedium)
-            Text("PC → phone is automatic. To send from your phone, copy text and tap Send clipboard now in the notification, or use the Send to PC tile.",
+            if (!state.paired) Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), shape = RoundedCornerShape(20.dp)) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Your first connection", style = MaterialTheme.typography.titleLarge)
+                    Text("1. Join the same Wi-Fi or your PC hotspot.\n2. On Windows, choose Pair new device.\n3. Tap Find & pair my PC, then compare the codes.")
+                    Text("No IP address needed. Your PC is discovered nearby, then verified securely.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.SwapHoriz, null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(10.dp)); Text("Copy here. Use it there.", style = MaterialTheme.typography.titleMedium)
+                    }
+                    Text("PC → phone", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    Text("Automatic. Copy on Windows, then paste on your unlocked phone.")
+                    HorizontalDivider()
+                    Text("Phone → PC", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    Text("Copy text, then tap Send clipboard now in the notification. Or add a shortcut beside Wi-Fi and Bluetooth in Quick Settings.")
+                    OutlinedButton(onClick = onAddTile, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                        Icon(Icons.Outlined.Add, null); Spacer(Modifier.width(6.dp)); Text("Add Send to PC shortcut")
+                    }
+                    TextButton(onClick = { help = true }, modifier = Modifier.fillMaxWidth()) { Text("What is a tile? Show me how →") }
+                }
+            }
+            Text("Made to stay out of your way", style = MaterialTheme.typography.titleMedium)
+            Text("Close this screen; sync stays on. Locked? The latest PC text waits in memory until you unlock.",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("Closing this screen keeps sync running. While locked, the latest PC text waits securely in memory until you unlock.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             state.sendFeedback?.let {
                 Text(it, style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
@@ -96,14 +122,14 @@ fun MainScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             HorizontalDivider()
                             Text("Connection", style = MaterialTheme.typography.titleMedium)
-                            Text("Use the PC's Wi-Fi IPv4 address. For a Windows mobile hotspot, use 192.168.137.1. Port 48653 is fixed for this phase.",
+                            Text("Nearby PCs are found automatically. If your network blocks discovery, enter a Wi-Fi IPv4 address as a fallback.",
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             OutlinedTextField(value = address, onValueChange = { if (it.length <= 15) address = it },
-                                label = { Text("PC IP address") }, placeholder = { Text("192.168.137.1") },
+                                label = { Text("Manual PC IP (optional)") }, placeholder = { Text("192.168.137.1") },
                                 modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !state.connecting,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                 isError = address.isNotBlank() && addressError != null,
-                                supportingText = { Text(if (address.isNotBlank() && addressError != null) addressError else "Saved on this phone; no auto-discovery yet.") })
+                                supportingText = { Text(if (address.isNotBlank() && addressError != null) addressError else "Leave empty for automatic discovery.") })
                             if (!state.connecting) {
                                 if (!state.connected) Button(onClick = { onConnect(address, !state.paired) }, enabled = addressError == null,
                                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
@@ -118,6 +144,13 @@ fun MainScreen(
                             if (state.running) OutlinedButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) {
                                 Text(if (state.connecting) "Cancel connection" else "Stop background connection")
                             }
+                            Row(Modifier.fillMaxWidth().toggleable(value = replayOnConnect, role = Role.Switch, onValueChange = onReplayChanged), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                                    Text("Apply latest text on reconnect", style = MaterialTheme.typography.titleMedium)
+                                    Text("Turn off to keep your phone clipboard unchanged when connecting.", style = MaterialTheme.typography.bodySmall)
+                                }
+                                Switch(checked = replayOnConnect, onCheckedChange = null)
+                            }
                             Text("Manual send shortcut", style = MaterialTheme.typography.titleMedium)
                             Text("Optional: add Send to PC to Quick Settings. Swipe down twice → Edit/pencil → drag Send to PC into your active tiles. Copying alone never sends anything.", style = MaterialTheme.typography.bodySmall)
                             TextButton(onClick = onAddTile) { Text("Add Send to PC tile") }
@@ -130,6 +163,8 @@ fun MainScreen(
                     }
                 }
             }
+            TextButton(onClick = { links.openUri(PROJECT_URL) }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Outlined.OpenInNew, null); Spacer(Modifier.width(8.dp)); Text("GitHub · Source & documentation") }
+            Text("ClipSync ${BuildConfig.VERSION_NAME} · Local by design", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.CenterHorizontally))
             Spacer(Modifier.height(12.dp))
         }
     }
@@ -158,7 +193,8 @@ private fun StatusCard(state: SyncUiState) {
         modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }) {
         Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Surface(color = accent.copy(alpha = .12f), shape = CircleShape) {
-                Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.padding(12.dp).size(28.dp))
+                if (state.connecting) CircularProgressIndicator(modifier = Modifier.padding(12.dp).size(28.dp), color = accent, strokeWidth = 3.dp)
+                else Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.padding(12.dp).size(28.dp))
             }
             Text(state.status, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold, color = accent)
             Text(state.error ?: when {
@@ -166,7 +202,7 @@ private fun StatusCard(state: SyncUiState) {
                 state.pendingUnlock -> "The latest PC clipboard is waiting for your phone to unlock."
                 state.connected -> "PC copies arrive automatically. Send phone copies with one notification or tile tap."
                 state.pairing != null -> "Compare the code with your Windows app."
-                state.connecting -> "Opening a secure connection to your PC…"
+                state.connecting -> "Finding your PC and checking its secure identity…"
                 state.paired -> "Your PC is paired. Connect when both devices are on the same Wi-Fi."
                 else -> "Pair your PC once to start receiving clipboard text."
             }, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)

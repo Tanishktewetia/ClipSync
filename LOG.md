@@ -249,3 +249,80 @@ The user confirmed the 44-file staging manifest. Phase 5 was committed and pushe
 **Verification:** Prior build evidence remains 95 passing local tests, successful Android/Windows builds, APK signature verification and reviewed Windows render previews. No new implementation changes were made during closure.
 **Git:** Exact staging-list confirmation is pending under RULES.md; no Phase 6 staging, commit or push has occurred yet.
 **Next phase:** Phase 7 — Auto-Connect, Discovery, Reconnect: automatic hotspot/last-IP/mDNS selection, backoff and heartbeat, and newest clipboard reconciliation on reconnect. Existing Phase 6 saved-IP recovery is the starting point; discovery and full reconciliation are not yet implemented. Phase 7 has not been started.
+
+
+## Phase 7 — Discovery, reconnect, Android guide and download site — 2026-09-25 (UTC)
+**Status:** Done — implementation/build/local verification; real-phone acceptance pending, not committed or pushed.
+**Built:**
+- Native Windows DNS-SD and Android Wi-Fi-bound authenticated candidate discovery; retained pin policy and manual-IP fallback.
+- Network callbacks, 1/2/5/15/30-second retry backoff, 15-second heartbeat with two-miss retirement, memory-only latest-version reconciliation, replay preferences and explicit offline phone capture.
+- Android 0.7.0 status/setup polish, animated search, offline Guide, clear Quick Settings tile explanation/add action, GitHub/issues/help links. Phone sending remains deliberate, never auto-detected.
+- SaaS-style static landing/docs/download site, real debug APK and checksum, responsive light/dark themes, README and setup documentation. No external deployment or new application package dependencies.
+- 122 distinct tests passed (171 including both Android-core build variants); Android compile/instrumentation compilation passed; lint 0 errors/8 existing warnings; Windows build/test passed. Native DNS-SD registered/resolved an IPv4 address and isolated listener port. Five browser viewport/theme scenarios, 28 internal links, FAQ/theme/download/checksum checks passed with zero page errors/external requests. APK signature verified.
+**Files added/changed:**
+- android/app/build.gradle.kts
+- android/app/src/main/java/com/clipsync/android/security/KeyStoreIdentity.kt
+- android/app/src/main/java/com/clipsync/android/service/ClipboardWatchService.kt
+- android/app/src/main/java/com/clipsync/android/service/RecoveryPolicy.kt
+- android/app/src/main/java/com/clipsync/android/service/SyncRuntime.kt
+- android/app/src/main/java/com/clipsync/android/store/SyncSettings.kt
+- android/app/src/main/java/com/clipsync/android/transport/TlsClipboardClient.kt
+- android/app/src/main/java/com/clipsync/android/ui/ClipboardReadActivity.kt
+- android/app/src/main/java/com/clipsync/android/ui/MainActivity.kt
+- android/app/src/main/java/com/clipsync/android/ui/MainScreen.kt
+- android/app/src/test/java/com/clipsync/android/service/RecoveryPolicyTest.kt
+- android/core/src/main/java/com/clipsync/core/Protocol.kt
+- docs/README.md
+- windows/ClipSync.Core/Protocol.cs
+- windows/ClipSync.Windows.Tests/PairingIntegrationTests.cs
+- windows/ClipSync.Windows/App.xaml.cs
+- windows/ClipSync.Windows/ClipSync.Windows.csproj
+- windows/ClipSync.Windows/Transport/SyncServer.cs
+- windows/ClipSync.Windows/UI/TrayIconManager.cs
+- README.md
+- android/app/src/main/java/com/clipsync/android/transport/PcDiscovery.kt
+- android/app/src/main/java/com/clipsync/android/ui/HelpScreen.kt
+- android/core/src/main/java/com/clipsync/core/SessionProtocol.kt
+- android/core/src/test/java/com/clipsync/core/SessionProtocolTest.kt
+- docs/phase-7-protocol.md
+- docs/phase-7-report.md
+- site/README.md
+- site/app.js
+- site/build.cjs
+- site/docs.html
+- site/index.html
+- site/mark.svg
+- site/serve.cjs
+- site/style.css
+- windows/ClipSync.Core.Tests/SessionProtocolTests.cs
+- windows/ClipSync.Core/SessionProtocol.cs
+- windows/ClipSync.Windows.Tests/DiscoveryIntegrationTests.cs
+- windows/ClipSync.Windows/Transport/MdnsAdvertiser.cs
+- windows/ClipSync.Windows/UI/ReconnectPreferences.cs
+- docs/phase-6-report.md (record the already-approved Phase 6 commit/push).
+- LOG.md (this entry). Generated APKs, site bundle, test identities/results and screenshots remain ignored under dist/build/TestResults.
+**Design note (if UI):** Used UI/UX Pro Max and frontend-design guidance. Retained indigo/lavender plus semantic status colors on native Material 3; exposed a Guide and tile education instead of burying setup. Website uses a warm neutral canvas, oversized editorial headline, dark device illustration, teal accents and clear download-to-docs hierarchy. Inspected desktop/mobile/light/dark screenshots and the documentation layout; no fake testimonials or SaaS account features. Android rendering still needs the phone.
+**Known issues:**
+- No real-phone/real-router/hotspot/sleep/reboot validation yet. User acceptance steps are in docs/phase-7-report.md.
+- Website is a local preview/publishable bundle, not publicly deployed. Debug beta signing, release packaging and auto-update remain later work.
+- Legacy CSP1 is extended compatibly rather than silently replaced; inherited lack of message-ID delivery ACKs and logical (not wall-clock) conflict ordering are documented in docs/phase-7-protocol.md. architecture.md was not edited.
+- Android may show its own clipboard indicator despite sensitive-preview redaction; OEM background restrictions remain test-dependent.
+**Manual test required:** yes — all 18 report steps, no USB. Waiting for results before any Phase 7 commit.
+
+
+### Phase 7 follow-up — landing-page motion redesign — 2026-09-26 (Asia/Kolkata)
+**Status:** Done — website revision implemented and browser-verified; user review pending.
+**Built:** Replaced the blue/purple split hero with graphite/oyster/gold direction, custom copy/transfer/paste motion graphic, pause/replay, scroll-linked setup story, selective heading reveals, offscreen/tab suspension, reduced-motion and no-JS fallback. APK/native code unchanged.
+**Files added/changed:** site/index.html, site/docs.html (shared styling), site/style.css, site/app.js, site/mark.svg, site/README.md, site/verify-motion.cjs, docs/phase-7-report.md, LOG.md.
+**Design note (if UI):** Used UI/UX Pro Max motion.csv scroll/reveal recipes and reduced-motion guidance with native browser APIs; no animation dependency added. Lighter oversized typography, fewer card boxes, quiet neutral surfaces and a distinctive paper-transfer illustration replace the generic blue-button treatment. Visually inspected desktop/mobile phase screenshots and the scroll-driven pairing scene.
+**Known issues:** Public deployment not performed; native phone verification remains pending. Six motion scenarios/no-JS passed; the existing 28-link and real APK/hash checks passed again with no page errors. No git staging/commit/push.
+**Manual test required:** yes — refresh preview, replay/pause, scroll through setup, compare light/dark/mobile/reduced-motion; see appended report.
+
+
+### Phase 7 follow-up — Windows EXE and bidirectional looping guide — 2026-09-26 (Asia/Kolkata)
+**Status:** Done — implemented and locally verified; user review pending, no commit/push.
+**Built:** Real self-contained win-x64 EXE download beside APK, version/hash/PE validation, two-artifact manifests and MIME/attachment headers. Replaced one-shot motion with a selectable 26-second loop: automatic PC → phone, one-time tile Edit/drag/Done, and explicit phone copy/tile tap → Windows. Retained pause/offscreen/hidden-tab/reduced-motion behavior and static help.
+**Files added/changed:** scripts/build-windows-download.ps1; site/index.html; site/docs.html; site/style.css; site/app.js; site/build.cjs; site/serve.cjs; site/verify-motion.cjs; site/verify-downloads.cjs; site/README.md; README.md; docs/phase-7-report.md; LOG.md. Generated EXE/APK/bundle/checksums/screenshots/logs remain under ignored dist/.
+**Design note (if UI):** Graphite/oyster/gold with a magnified Quick Settings illustration. Motion now teaches both directions and the deliberate send action rather than implying automatic Android reads. Used UI/UX Pro Max motion/reduced-motion guidance without new animation dependencies.
+**Known issues:** EXE is unsigned and was not launched; public deployment, production signing and clean-machine/real-phone tests remain pending. Self-contained publish/version/x64 format checks passed; actual browser EXE/APK downloads match checksums; six bidirectional motion/loop scenarios, no-JS fallback, 31 links and five responsive/theme cases passed with zero browser errors.
+**Manual test required:** yes — refresh, watch at least 30 seconds, select tile/phone chapters, pause/reduced-motion, verify both downloads and test Windows from a clean folder after quitting the old tray instance.
