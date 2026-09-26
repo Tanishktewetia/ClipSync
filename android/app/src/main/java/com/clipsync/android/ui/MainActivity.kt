@@ -20,7 +20,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.*
 import androidx.core.content.ContextCompat
 import com.clipsync.android.clipboard.ClipboardReadStore
 import com.clipsync.android.logging.CrashHandler
@@ -50,12 +50,14 @@ class MainActivity : ComponentActivity() {
         ClipboardReadStore.initialize(this)
         SyncRuntime.initialize(this)
         val lastCrash = CrashHandler.consumeLastCrash()
-        FileLogger.info("Phase 6 main screen opened")
+        FileLogger.info("Phase 7 main screen opened")
         setContent {
+            var replay by remember { mutableStateOf(settings.replayOnConnect) }
             ClipSyncTheme {
                 MainScreen(
                     state = SyncRuntime.state.collectAsState().value,
                     lastCrash = lastCrash,
+                    replayOnConnect = replay, onReplayChanged = { replay = it; settings.replayOnConnect = it },
                     onConnect = ::connect,
                     onPause = ::pause,
                     onStop = ::stopConnection,
@@ -68,7 +70,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
-        // Restarts only an already enabled, paired session. No background discovery.
+        // Restarts only an already enabled, paired discovery session.
         if (ClipboardReadStore.isServiceEnabled(this) && !SyncRuntime.state.value.running && settings.hasPin) {
             runCatching { ContextCompat.startForegroundService(this, Intent(this, ClipboardWatchService::class.java)) }
                 .onFailure { SyncRuntime.update { state -> state.copy(error = "Tap Reconnect to restart the background connection.") } }
@@ -97,7 +99,7 @@ class MainActivity : ComponentActivity() {
         super.onSaveInstanceState(outState)
     }
     private fun connect(address: String, pairing: Boolean) {
-        val valid = try { ManualAddress.parse(address) } catch (e: IllegalArgumentException) {
+        val valid = try { if (address.isBlank()) "" else ManualAddress.parse(address) } catch (e: IllegalArgumentException) {
             SyncRuntime.update { it.copy(error = e.message) }; return
         }
         settings.address = valid

@@ -1,7 +1,7 @@
 # Phase 6 — Manual phone → PC sends and lifecycle follow-ups
 
 **Date:** 2026-09-26 (Asia/Kolkata, verified on the build machine)
-**Status:** Done — the user reports successful hardware testing and approves Phase 6 for commit/push. Final staging-list confirmation is pending under RULES.md; no Phase 6 commit/push yet.
+**Status:** Done — user hardware testing passed and the exact staging list was confirmed. Committed and pushed to origin/main as 76a8514ff71267ae09f0ac3f2312c8006e6ebc88; remote verified again during Phase 7.
 **Previous phase:** Phase 5 was committed and pushed to origin/main as edf9060725cea37295e8ee0456f7661c140c8211 after the user confirmed the exact staging manifest.
 
 ## Human acceptance

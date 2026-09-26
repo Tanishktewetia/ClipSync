@@ -1,51 +1,15 @@
-# ClipSync
+# ClipSync documentation
 
-Wi-Fi clipboard sync between Windows 11 and Android 13. No cloud, no USB, no taps.
+Start with the [project README](../README.md), [setup guide](../site/docs.html), and Android's offline Guide.
 
-## Quick Start
+PC → phone is automatic. Phone → PC requires an explicit notification or Quick Settings tile tap. No USB or Developer options are needed.
 
-### Windows
+- [Phase 5](phase-5-report.md)
+- [Phase 6](phase-6-report.md)
+- [Phase 7: discovery, reconnect, Android guide and website](phase-7-report.md)
+- [Phase 7 protocol extension](phase-7-protocol.md)
+- [Website preview and publishing instructions](../site/README.md)
 
-```powershell
-# Build
-.\scripts\build-windows.ps1
+Use scripts/build-windows.ps1, scripts/run-windows.ps1 and scripts/build-android.ps1 from the repository root. Current projects use .NET 10, JDK 17 and SDK 34. Sideload using Telegram or scripts/serve-apk.ps1; no developer-mode or ADB setup is part of normal installation/testing.
 
-# Run
-.\scripts\run-windows.ps1
-```
-
-The app lives in the system tray. Right-click the tray icon or click to open the status popover.
-
-### Android
-
-```powershell
-# Build (outputs APK to dist/)
-.\scripts\build-android.ps1
-
-# Serve APK over local network for sideloading
-.\scripts\serve-apk.ps1
-```
-
-#### Sideloading
-
-1. Run `.\scripts\build-android.ps1` to produce `dist/ClipSync-debug-<version>.apk`
-2. **Option A — Telegram:** Send the APK to Saved Messages, open on phone, install.
-3. **Option B — Local HTTP:** Run `.\scripts\serve-apk.ps1`, note the URL, open it in the phone's browser (phone and PC must be on the same network).
-4. On first install, allow "Install unknown apps" for the app you're installing from (Telegram, Chrome, Files).
-
-### Wireless ADB (optional, for live logs)
-
-```powershell
-.\scripts\adb-wireless.ps1
-```
-
-Follow the prompts. Requires Developer Options → Wireless debugging enabled on the phone.
-
-## Logs
-
-- **Windows:** `%APPDATA%\ClipSync\logs\clipsync-YYYYMMDD.log` — or use the "Open log folder" option in the tray menu.
-- **Android:** In-app Diagnostics section → Copy logs / Share logs / Save to Downloads.
-
-## Architecture
-
-See [architecture.md](architecture.md) for the full design document.
+Android logs: Advanced → Diagnostics → Copy / Share / Save. Windows logs: Open Log Folder in the tray. Include phase/step, versions and network mode; do not include confidential clipboard contents.

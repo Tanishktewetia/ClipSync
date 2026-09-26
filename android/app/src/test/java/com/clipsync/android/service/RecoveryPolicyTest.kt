@@ -10,12 +10,13 @@ import java.util.concurrent.CancellationException
 import javax.net.ssl.SSLHandshakeException
 
 class RecoveryPolicyTest {
-    @Test fun enabledNeedsPersistedIntentPeerAndAddress() {
+    @Test fun enabledNeedsPersistedIntentAndPeerButNotAnAddress() {
         assertTrue(RecoveryPolicy.enabled(true, true, "192.168.1.2"))
         assertFalse(RecoveryPolicy.enabled(false, true, "192.168.1.2"))
         assertFalse(RecoveryPolicy.enabled(true, false, "192.168.1.2"))
-        assertFalse(RecoveryPolicy.enabled(true, true, ""))
+        assertTrue(RecoveryPolicy.enabled(true, true, ""))
     }
+    @Test fun backoffCapsAtThirtySeconds() { assertEquals(listOf(1000L,2000L,5000L,15000L,30000L,30000L), (0..5).map(RecoveryPolicy::delayMillis)) }
     @Test fun wifiUnavailableAtBootCanRecoverLater() { assertTrue(RecoveryPolicy.retry(ConnectionStage.WIFI_ROUTE, Exception(), false)) }
     @Test fun droppedSocketAndConnectTimeoutAreRecoverable() {
         assertTrue(RecoveryPolicy.retry(ConnectionStage.RECEIVING, SocketException(), false))

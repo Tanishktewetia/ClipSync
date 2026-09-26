@@ -33,6 +33,8 @@ class ClipboardWatchService : Service() {
     private var connectionJob: Job? = null
     private var retryJob: Job? = null
     private var generation = 0L
+    private var retryAttempt = 0
+    private lateinit var journal: com.clipsync.core.ReconnectJournal
     private var destroyed = false
     private var recoveryBlocked = false
     private var networkRegistered = false
@@ -53,7 +55,7 @@ class ClipboardWatchService : Service() {
             if (intent?.action == Intent.ACTION_USER_PRESENT || intent?.action == Intent.ACTION_USER_UNLOCKED || intent?.action == Intent.ACTION_SCREEN_ON) {
                 applyDeferred()
                 // A socket can look connected after sleep even when the link has died.
-                // Replace it on unlock instead of waiting for an unimplemented Phase 7 heartbeat.
+                // Unlock can outpace the heartbeat timeout; replace the route for immediate recovery.
                 recover("Phone unlocked", replaceConnected = true)
             }
         }
@@ -62,6 +64,7 @@ class ClipboardWatchService : Service() {
     override fun onCreate() {
         super.onCreate()
         settings = SyncSettings(this)
+        journal = com.clipsync.core.ReconnectJournal(settings.deviceId)
         ClipboardReadStore.initialize(this)
         SyncRuntime.initialize(this)
         notifications = getSystemService(NotificationManager::class.java)
@@ -100,13 +103,14 @@ class ClipboardWatchService : Service() {
             ACTION_PAUSE -> {
                 settings.paused = intent.getBooleanExtra("paused", false)
                 SyncRuntime.receiver.setPaused(settings.paused)
-                if (settings.paused) SyncRuntime.sender.clear()
+                if (settings.paused) { SyncRuntime.sender.clear(); journal.clear() }
                 SyncRuntime.update { it.copy(paused = settings.paused, pendingUnlock = SyncRuntime.receiver.hasDeferred) }
                 FileLogger.info(if (settings.paused) "Sync paused" else "Sync resumed")
             }
             ACTION_CONNECT, ACTION_PAIR -> {
-                recoveryBlocked = false
+                recoveryBlocked = false; retryAttempt = 0
                 if (intent.action == ACTION_PAIR || SyncRuntime.state.value.address != settings.address) SyncRuntime.receiver.clearDeferred()
+                if (intent.action == ACTION_PAIR) journal.clear()
                 connect(intent.action == ACTION_PAIR)
             }
             else -> recover("Service resume")
@@ -120,7 +124,7 @@ class ClipboardWatchService : Service() {
     private fun recover(reason: String, replaceConnected: Boolean = false) {
         if (!canRecover() || SyncRuntime.state.value.pairing != null) return
         if (connectionJob?.isActive == true && !(replaceConnected && SyncRuntime.state.value.connected)) return
-        FileLogger.info("Restoring saved-PC connection: $reason")
+        FileLogger.info("Restoring discovered-PC connection: $reason")
         retryJob?.cancel(); retryJob = null
         connect(false)
     }
@@ -142,16 +146,25 @@ class ClipboardWatchService : Service() {
                 wifiLock = wifi.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "ClipSync:connection").apply {
                     setReferenceCounted(false); acquire()
                 }
-                val transport = TlsClipboardClient(applicationContext, settings)
+                val endpoint = withContext(Dispatchers.IO) {
+                    settings.readPin() // Fail closed on damaged protected storage before racing untrusted hints.
+                    com.clipsync.android.security.KeyStoreIdentity()
+                    PcDiscovery(applicationContext, settings).race(pairing) { hint ->
+                        TlsClipboardClient(applicationContext, settings).probe(hint, pairing)
+                    }
+                }
+                val transport = TlsClipboardClient(applicationContext, settings, journal)
                 client = transport
                 withContext(Dispatchers.IO) {
-                    transport.run(settings.address, pairing,
+                    transport.run(endpoint.address, pairing, endpoint.port,
                         confirm = { code -> withContext(Dispatchers.Main) {
                             check(attempt == generation)
                             withTimeout(120000) { SyncRuntime.requestPairing(attempt, code).await() }
                         } },
                         connected = { withContext(Dispatchers.Main) {
                             check(attempt == generation)
+                            retryAttempt = 0
+                            settings.lastAddress = endpoint.address; settings.lastPort = endpoint.port
                             SyncRuntime.receiver.connected(settings.paused)
                             SyncRuntime.update { it.copy(connected = true, connecting = false, paired = true, error = null) }
                             FileLogger.info("Connected: TLS 1.3, pinned PC, manual two-way sync")
@@ -174,10 +187,10 @@ class ClipboardWatchService : Service() {
             } catch (e: Exception) {
                 if (attempt == generation) {
                     val stage = client?.stage ?: ConnectionStage.IDLE
-                    shouldRetry = RecoveryPolicy.retry(stage, e, pairing)
+                    shouldRetry = (!pairing && client == null && e is java.io.IOException) || RecoveryPolicy.retry(stage, e, pairing)
                     recoveryBlocked = !shouldRetry
                     val message = if (e is ConnectionProblem) e.message ?: "Connection failed." else ConnectionDiagnostics.userMessage(stage, e)
-                    fail(if (shouldRetry) "Connection interrupted. Retrying the saved PC on Wi-Fi…" else message, e)
+                    fail(if (shouldRetry) "Connection interrupted. Searching for your PC on Wi-Fi…" else message, e)
                 }
             } finally {
                 if (attempt == generation) {
@@ -186,7 +199,7 @@ class ClipboardWatchService : Service() {
                     SyncRuntime.update { it.copy(connected = false, connecting = false) }
                     releaseWifiLock()
                     if (shouldRetry && canRecover()) retryJob = scope.launch {
-                        delay(RecoveryPolicy.RETRY_MILLIS)
+                        delay(RecoveryPolicy.delayMillis(retryAttempt++))
                         recover("Connection retry")
                     }
                 }
@@ -195,9 +208,20 @@ class ClipboardWatchService : Service() {
     }
 
     private fun offerManualSend(text: String, sensitive: Boolean): ManualSendResult {
-        val result = if (settings.paused) ManualSendResult.PAUSED else SyncRuntime.sender.offer(text, sensitive)
+        val offline = !SyncRuntime.state.value.connected
+        val result = if (settings.paused) ManualSendResult.PAUSED
+        else if (text.toByteArray().size > com.clipsync.core.SessionProtocol.MAX_TEXT) ManualSendResult.TOO_LARGE
+        else if (offline) {
+            when {
+                text.isEmpty() -> ManualSendResult.EMPTY
+                hash(text.toByteArray()) == SyncRuntime.receiver.engine.hashGuard.lastAppliedHash -> ManualSendResult.ECHO
+                sensitive -> ManualSendResult.SENSITIVE
+                !settings.hasPin -> ManualSendResult.DISCONNECTED
+                else -> { journal.local(text); SyncRuntime.receiver.clearDeferred(); ManualSendResult.QUEUED }
+            }
+        } else SyncRuntime.sender.offer(text, sensitive)
         SyncRuntime.update { it.copy(sendFeedback = when (result) {
-            ManualSendResult.QUEUED -> "Sending clipboard to PC…"
+            ManualSendResult.QUEUED -> if (offline) "Latest text held in memory for reconnect." else "Sending clipboard to PC…"
             ManualSendResult.ECHO -> "Already received from PC; not sent back."
             ManualSendResult.DUPLICATE -> "Already sent; no duplicate needed."
             ManualSendResult.SENSITIVE -> "Sensitive clipboard skipped."
@@ -207,7 +231,7 @@ class ClipboardWatchService : Service() {
             ManualSendResult.TOO_LARGE -> "Not sent: text exceeds the 1 MiB limit."
         }, pendingUnlock = SyncRuntime.receiver.hasDeferred) }
         FileLogger.info("Manual clipboard action: ${result.name}")
-        if (result == ManualSendResult.QUEUED) sendSignal.trySend(Unit)
+        if (result == ManualSendResult.QUEUED && !offline) sendSignal.trySend(Unit)
         return result
     }
 
@@ -287,7 +311,7 @@ class ClipboardWatchService : Service() {
             })
             .setContentIntent(open).setOngoing(true).setSilent(true).setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW).setCategory(NotificationCompat.CATEGORY_SERVICE)
-        if (state.connected && !state.paused) builder.addAction(action)
+        if (state.paired && !state.paused) builder.addAction(action)
         return builder.build()
     }
     companion object {

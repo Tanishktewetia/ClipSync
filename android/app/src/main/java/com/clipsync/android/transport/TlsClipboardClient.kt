@@ -14,6 +14,9 @@ import com.clipsync.android.security.PinnedTrustManager
 import com.clipsync.android.store.SyncSettings
 import com.clipsync.core.FrameReader
 import com.clipsync.core.MessageType
+import kotlinx.coroutines.*
+import com.clipsync.core.SessionProtocol
+import com.clipsync.core.ReconnectJournal
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import java.io.EOFException
@@ -24,8 +27,8 @@ import javax.net.ssl.SSLSocket
 
 class ConnectionProblem(message: String) : Exception(message)
 
-/** One Wi-Fi-bound connection. Its service owns lifecycle recovery; no discovery here. */
-class TlsClipboardClient(private val context: Context, private val settings: SyncSettings) {
+/** One Wi-Fi-bound authenticated connection. Discovery never changes trust. */
+class TlsClipboardClient(private val context: Context, private val settings: SyncSettings, private val journal: ReconnectJournal = ReconnectJournal(settings.deviceId)) {
     @Volatile var stage = ConnectionStage.IDLE
         private set
     private fun stage(next: ConnectionStage) {
@@ -39,21 +42,47 @@ class TlsClipboardClient(private val context: Context, private val settings: Syn
     private var socket: Socket? = null
     /** Serialized writes; caller owns a deadline that closes this connection on a stalled write. */
     fun sendText(text: String) {
-        val frame = FrameCodec.encode(ClipMessage(MessageType.TEXT, text))
+        val message = journal.local(text)
+        val frame = FrameCodec.encode(if (modern) message else ClipMessage(MessageType.TEXT, text))
         synchronized(writeLock) {
             val active = readySocket ?: throw EOFException("Connection not ready")
             active.outputStream.write(frame)
             active.outputStream.flush()
         }
     }
+    @Volatile private var modern = false
+    @Volatile private var lastPongAt = 0L
+    private var heartbeatWatchdog: Job? = null
+    private fun write(message: ClipMessage) = synchronized(writeLock) {
+        val active = readySocket ?: throw EOFException("Connection not ready")
+        active.outputStream.write(FrameCodec.encode(message)); active.outputStream.flush()
+    }
+    suspend fun probe(endpoint: PcEndpoint, pairing: Boolean): PcEndpoint = coroutineScope {
+        val cleanup = launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) { try { awaitCancellation() } finally { close() } }
+        try {
+            val manager = context.getSystemService(ConnectivityManager::class.java)
+            @Suppress("DEPRECATION")
+            val wifi = manager.allNetworks.firstOrNull { manager.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true }
+                ?: throw java.io.IOException("Wi-Fi unavailable")
+            val identity = KeyStoreIdentity()
+            val tls = SSLContext.getInstance("TLS").apply { init(arrayOf(identity), arrayOf(PinnedTrustManager(settings.readPin(), pairing)), null) }
+            val tcp = wifi.socketFactory.createSocket(); own(tcp)
+            tcp.connect(InetSocketAddress(endpoint.address, endpoint.port), 2500); tcp.soTimeout = 2500
+            val ssl = tls.socketFactory.createSocket(tcp, endpoint.address, endpoint.port, true) as SSLSocket; own(ssl)
+            ssl.enabledProtocols = arrayOf("TLSv1.3"); ssl.startHandshake()
+            val offer = PairingProtocol.readLine(ssl.inputStream)
+            if (offer != "READY" && !offer.startsWith("PAIR|")) throw java.io.IOException("Not ClipSync")
+            endpoint
+        } finally { cleanup.cancel(); close() }
+    }
     private var closed = false
     @Synchronized private fun own(next: Socket) {
         if (closed) { next.close(); throw EOFException("Connection cancelled") }
         socket = next
     }
-    @Synchronized fun close() { closed = true; readySocket = null; runCatching { socket?.close() }; socket = null }
+    @Synchronized fun close() { heartbeatWatchdog?.cancel(); closed = true; readySocket = null; runCatching { socket?.close() }; socket = null }
 
-    suspend fun run(address: String, pairing: Boolean, confirm: suspend (String) -> Boolean,
+    suspend fun run(address: String, pairing: Boolean, port: Int = PORT, confirm: suspend (String) -> Boolean,
                     connected: suspend () -> Unit, receive: suspend (String) -> Unit) {
         val ip = ManualAddress.parse(address)
         stage(ConnectionStage.WIFI_ROUTE)
@@ -76,9 +105,9 @@ class TlsClipboardClient(private val context: Context, private val settings: Syn
         try {
             stage(ConnectionStage.TCP_CONNECT)
             tcp.tcpNoDelay = true
-            tcp.connect(InetSocketAddress(ip, PORT), 8000)
+            tcp.connect(InetSocketAddress(ip, port), 8000)
             tcp.soTimeout = 10000
-            val secure = tls.socketFactory.createSocket(tcp, ip, PORT, true) as SSLSocket
+            val secure = tls.socketFactory.createSocket(tcp, ip, port, true) as SSLSocket
             own(secure)
             if (!secure.supportedProtocols.contains("TLSv1.3")) {
                 throw ConnectionProblem("Secure sync requires Android 10 or newer with TLS 1.3. No insecure fallback is used.")
@@ -112,19 +141,54 @@ class TlsClipboardClient(private val context: Context, private val settings: Syn
             }
             currentCoroutineContext().ensureActive()
             if (pairing) { stage(ConnectionStage.PIN_SAVE); settings.pin(remote) }
-            secure.soTimeout = 0
+            secure.soTimeout = 1000
             readySocket = secure
             stage(ConnectionStage.RECEIVING)
             connected()
+            write(SessionProtocol.hello(journal.latest, settings.replayOnConnect && !settings.paused))
+            lastPongAt = android.os.SystemClock.elapsedRealtime()
+            var lastPing = lastPongAt
+            heartbeatWatchdog = CoroutineScope(currentCoroutineContext()).launch(Dispatchers.Default) {
+                while (isActive) {
+                    delay(1000)
+                    if (modern && android.os.SystemClock.elapsedRealtime() - lastPongAt >= 30000) {
+                        FileLogger.warn("Two heartbeat replies missed; closing stale connection")
+                        close(); return@launch
+                    }
+                }
+            }
             val frames = FrameReader()
             val buffer = ByteArray(8192)
             while (true) {
                 currentCoroutineContext().ensureActive()
-                val count = input.read(buffer)
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (modern && now - lastPongAt >= 30000) throw java.net.SocketTimeoutException("Two heartbeats missed")
+                if (modern && now - lastPing >= 15000) { write(ClipMessage(MessageType.PING)); lastPing = now }
+                val count = try { input.read(buffer) } catch (_: java.net.SocketTimeoutException) { continue }
                 if (count < 0) throw EOFException("PC disconnected")
                 for (frame in frames.push(buffer.copyOf(count))) {
-                    if (frame.type == MessageType.TEXT) receive(frame.text ?: "")
-                    // Manual sends use the same authenticated socket; images/discovery remain out of scope.
+                    when (frame.type) {
+                        MessageType.HELLO -> {
+                            val origin = SessionProtocol.origin(frame)
+                            if (origin != null && !modern) {
+                                journal.observe(frame.lamport)
+                                modern = true; lastPongAt = android.os.SystemClock.elapsedRealtime()
+                                journal.latest?.let { if (!settings.paused && SessionProtocol.replay(frame) && SessionProtocol.newer(it, frame.lamport, origin)) write(it) }
+                            }
+                        }
+                        MessageType.PING -> if (modern) write(ClipMessage(MessageType.PONG))
+                        MessageType.PONG -> lastPongAt = android.os.SystemClock.elapsedRealtime()
+                        MessageType.STATE -> if (modern && !settings.paused && journal.accept(frame)) {
+                            try { receive(frame.text ?: "") }
+                            catch (e: CancellationException) { throw e }
+                            catch (e: Exception) {
+                                journal.forgetIf(frame)
+                                throw java.io.IOException("Clipboard apply failed; retry newest on reconnect", e)
+                            }
+                        }
+                        MessageType.TEXT -> if (!settings.paused) { journal.clear(); receive(frame.text ?: "") }
+                        else -> Unit
+                    }
                 }
             }
         } finally { close() }

@@ -9,7 +9,7 @@ public sealed class TrayIconManager : IDisposable
     private readonly NotifyIcon _notifyIcon;
     private readonly StatusWindow _statusWindow;
 
-    public TrayIconManager(StatusWindow statusWindow)
+    public TrayIconManager(StatusWindow statusWindow, bool replayOnConnect = true, Action<bool>? replayChanged = null)
     {
         _statusWindow = statusWindow;
         _notifyIcon = new NotifyIcon
@@ -22,6 +22,9 @@ public sealed class TrayIconManager : IDisposable
 
         var menu = new ContextMenuStrip();
         menu.Items.Add("Show Status", null, (_, _) => ScheduleShowStatus());
+        var replay = new ToolStripMenuItem("Apply latest text on reconnect") { CheckOnClick = true, Checked = replayOnConnect };
+        replay.CheckedChanged += (_, _) => replayChanged?.Invoke(replay.Checked);
+        menu.Items.Add(replay);
         menu.Items.Add("Open Log Folder", null, OnOpenLogFolder);
         menu.Items.Add("Quit ClipSync (stop sharing)", null, OnExit);
         _notifyIcon.ContextMenuStrip = menu;

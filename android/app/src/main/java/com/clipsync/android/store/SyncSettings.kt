@@ -13,6 +13,16 @@ class SyncSettings(context: Context) {
     var address: String
         get() = prefs.getString("address", "") ?: ""
         set(value) { prefs.edit().putString("address", value).apply() }
+    var lastAddress: String
+        get() = prefs.getString("last_address", "") ?: ""
+        set(value) { prefs.edit().putString("last_address", value).apply() }
+    var lastPort: Int
+        get() = prefs.getInt("last_port", 48653)
+        set(value) { prefs.edit().putInt("last_port", value).apply() }
+    var replayOnConnect: Boolean
+        get() = prefs.getBoolean("replay_on_connect", true)
+        set(value) { prefs.edit().putBoolean("replay_on_connect", value).apply() }
+    val deviceId: String get() = prefs.getString("device_id", null) ?: java.util.UUID.randomUUID().toString().also { prefs.edit().putString("device_id", it).commit() }
     var paused: Boolean
         get() = prefs.getBoolean("paused", false)
         set(value) { prefs.edit().putBoolean("paused", value).apply() }

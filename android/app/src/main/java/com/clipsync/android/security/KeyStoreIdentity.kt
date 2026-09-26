@@ -24,7 +24,7 @@ import javax.security.auth.x500.X500Principal
 /** Private signing key never leaves Android Keystore; not gated on biometric unlock. */
 class KeyStoreIdentity : X509ExtendedKeyManager() {
     private val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-    init {
+    init { synchronized(identityLock) {
         if (!store.containsAlias(ALIAS)) {
             KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore").apply {
                 initialize(tlsIdentityKeySpec(ALIAS))
@@ -47,7 +47,7 @@ class KeyStoreIdentity : X509ExtendedKeyManager() {
         verifier.update(digest)
         check(verifier.verify(signature)) { "TLS identity self-test failed" }
         FileLogger.info("Keystore TLS signing self-test passed: policy=v2")
-    }
+    } }
     val fingerprint: String get() = hash(store.getCertificate(ALIAS).encoded)
     override fun getPrivateKey(alias: String?): PrivateKey? =
         if (alias == ALIAS) store.getKey(ALIAS, null) as PrivateKey else null
@@ -61,7 +61,7 @@ class KeyStoreIdentity : X509ExtendedKeyManager() {
         if (keyType?.contains("EC") == true) ALIAS else null
     override fun getServerAliases(keyType: String?, issuers: Array<out Principal>?): Array<String>? = null
     override fun chooseServerAlias(keyType: String?, issuers: Array<out Principal>?, socket: Socket?): String? = null
-    companion object { private const val ALIAS = TlsIdentityPolicy.ALIAS }
+    companion object { private val identityLock = Any(); private const val ALIAS = TlsIdentityPolicy.ALIAS }
 }
 
 /** Shared by production generation and the device-only Keystore regression tests. */
