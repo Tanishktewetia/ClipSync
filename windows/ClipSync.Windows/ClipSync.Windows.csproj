@@ -2,8 +2,8 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <Version>0.7.0</Version>
-    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <Version>0.8.5.1</Version>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>

@@ -25,10 +25,10 @@ import java.net.Socket
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocket
 
-class ConnectionProblem(message: String) : Exception(message)
+class ConnectionProblem(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 /** One Wi-Fi-bound authenticated connection. Discovery never changes trust. */
-class TlsClipboardClient(private val context: Context, private val settings: SyncSettings, private val journal: ReconnectJournal = ReconnectJournal(settings.deviceId)) {
+class TlsClipboardClient(private val context: Context, private val settings: SyncSettings, private val journal: ReconnectJournal = ReconnectJournal(settings.deviceId), private val peerPin: String? = null) {
     @Volatile var stage = ConnectionStage.IDLE
         private set
     private fun stage(next: ConnectionStage) {
@@ -57,24 +57,6 @@ class TlsClipboardClient(private val context: Context, private val settings: Syn
         val active = readySocket ?: throw EOFException("Connection not ready")
         active.outputStream.write(FrameCodec.encode(message)); active.outputStream.flush()
     }
-    suspend fun probe(endpoint: PcEndpoint, pairing: Boolean): PcEndpoint = coroutineScope {
-        val cleanup = launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) { try { awaitCancellation() } finally { close() } }
-        try {
-            val manager = context.getSystemService(ConnectivityManager::class.java)
-            @Suppress("DEPRECATION")
-            val wifi = manager.allNetworks.firstOrNull { manager.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true }
-                ?: throw java.io.IOException("Wi-Fi unavailable")
-            val identity = KeyStoreIdentity()
-            val tls = SSLContext.getInstance("TLS").apply { init(arrayOf(identity), arrayOf(PinnedTrustManager(settings.readPin(), pairing)), null) }
-            val tcp = wifi.socketFactory.createSocket(); own(tcp)
-            tcp.connect(InetSocketAddress(endpoint.address, endpoint.port), 2500); tcp.soTimeout = 2500
-            val ssl = tls.socketFactory.createSocket(tcp, endpoint.address, endpoint.port, true) as SSLSocket; own(ssl)
-            ssl.enabledProtocols = arrayOf("TLSv1.3"); ssl.startHandshake()
-            val offer = PairingProtocol.readLine(ssl.inputStream)
-            if (offer != "READY" && !offer.startsWith("PAIR|")) throw java.io.IOException("Not ClipSync")
-            endpoint
-        } finally { cleanup.cancel(); close() }
-    }
     private var closed = false
     @Synchronized private fun own(next: Socket) {
         if (closed) { next.close(); throw EOFException("Connection cancelled") }
@@ -82,7 +64,7 @@ class TlsClipboardClient(private val context: Context, private val settings: Syn
     }
     @Synchronized fun close() { heartbeatWatchdog?.cancel(); closed = true; readySocket = null; runCatching { socket?.close() }; socket = null }
 
-    suspend fun run(address: String, pairing: Boolean, port: Int = PORT, confirm: suspend (String) -> Boolean,
+    suspend fun run(address: String, port: Int = PORT,
                     connected: suspend () -> Unit, receive: suspend (String) -> Unit) {
         val ip = ManualAddress.parse(address)
         stage(ConnectionStage.WIFI_ROUTE)
@@ -94,11 +76,11 @@ class TlsClipboardClient(private val context: Context, private val settings: Syn
         } ?: throw ConnectionProblem("Join the same Wi-Fi or PC hotspot, then tap Reconnect.")
         network = wifi
         stage(ConnectionStage.PIN_STORAGE)
-        val pin = settings.readPin()
-        if (!pairing && pin == null) throw ConnectionProblem("Pair this phone with your PC first.")
+        val pin = peerPin
+        if (pin == null) throw ConnectionProblem("Pair this phone with your PC first.")
         stage(ConnectionStage.KEYSTORE_IDENTITY)
         val identity = KeyStoreIdentity()
-        val trust = PinnedTrustManager(pin, pairing)
+        val trust = PinnedTrustManager(pin, false)
         val tls = SSLContext.getInstance("TLS").apply { init(arrayOf(identity), arrayOf(trust), null) }
         val tcp = wifi.socketFactory.createSocket()
         own(tcp)
@@ -121,26 +103,8 @@ class TlsClipboardClient(private val context: Context, private val settings: Syn
             val input = secure.inputStream
             stage(ConnectionStage.PAIRING_OFFER)
             val response = PairingProtocol.readLine(input)
-            if (response.startsWith("PAIR|")) {
-                if (!pairing) throw ConnectionProblem("On the PC choose Pair new device, then pair again here.")
-                val code = PairingProtocol.validateOffer(response, identity.fingerprint, remote)
-                stage(ConnectionStage.PAIRING_CONFIRM)
-                if (!confirm(code)) throw ConnectionProblem("Pairing cancelled. Neither clipboard was shared.")
-                currentCoroutineContext().ensureActive()
-                secure.outputStream.write("CONFIRM|$code\n".toByteArray(Charsets.US_ASCII))
-                secure.outputStream.flush()
-                if (PairingProtocol.readLine(input) != "READY") throw ConnectionProblem("Pairing was rejected or expired. Start pairing again on both devices.")
-            } else if (response == "READY") {
-                if (pairing && remote != pin) {
-                    // The PC may already pin this phone after an interrupted previous pairing.
-                    stage(ConnectionStage.PAIRING_CONFIRM)
-                    if (!confirm(PairingProtocol.code(identity.fingerprint, remote))) throw ConnectionProblem("Pairing cancelled.")
-                }
-            } else {
-                throw ConnectionProblem("On the PC choose Pair new device, then try pairing again.")
-            }
+            if (response != "READY") throw ConnectionProblem("The PC did not accept this saved identity. Use Pair again from its tile.")
             currentCoroutineContext().ensureActive()
-            if (pairing) { stage(ConnectionStage.PIN_SAVE); settings.pin(remote) }
             secure.soTimeout = 1000
             readySocket = secure
             stage(ConnectionStage.RECEIVING)

@@ -1,0 +1,5 @@
+{
+  "buildCommand": "node site/build.cjs",
+  "outputDirectory": "dist/site",
+  "framework": null
+}

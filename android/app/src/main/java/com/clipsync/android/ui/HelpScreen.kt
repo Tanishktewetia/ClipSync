@@ -26,13 +26,14 @@ fun HelpScreen(onBack: () -> Unit, onAddTile: () -> Unit) {
     }) }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            Text("Two devices. One flow.", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+            BrandHeader("The guide to your shared clipboard")
+            Text("Connect, copy, stay in control.", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
             Text("Everything you need to connect, copy, and stay in control.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             GuideSection("01", "Connect your devices", listOf(
                 "Install and open ClipSync on your Windows PC and Android phone.",
                 "Join the same Wi-Fi network, or connect your phone to the PC's hotspot. Internet access is not needed for syncing.",
-                "On Windows, open ClipSync from the tray and choose Pair new device. On your phone, tap Find & pair my PC.",
-                "Compare all six digits on both devices. Tap Codes match only if they match. Discovery does not bypass this security check."))
+                "On Windows, open ClipSync from the tray and choose Pair new device. On your phone, tap Find a PC.",
+                "Compare all six digits on both devices. Tap Confirm pairing only if they match. Then expand the new Available tile and tap Connect. Discovery does not bypass this security check."))
             GuideSection("02", "Copy on Windows. Paste on Android.", listOf(
                 "Wait for Connected, then copy plain text on Windows as usual.",
                 "Open a text field on your unlocked phone and paste. There is no Receive button to press.",
@@ -50,12 +51,12 @@ fun HelpScreen(onBack: () -> Unit, onAddTile: () -> Unit) {
                 "After restarting the phone, unlock it once. Enabled sync resumes; a force-stop in Android Settings requires opening the app again.",
                 "Discovery checks your PC hotspot, saved address, and local network. Recovery backs off up to 30 seconds; no need to re-pair after an IP change.",
                 "Only the newest known text is kept in memory. If offline, tap Send to PC to hold that phone text for reconnect. Text is not retained after the process exits. Conflicts use a logical counter and device ID, not your wall clock.",
-                "Turn off Apply latest text on reconnect in Advanced to preserve the phone clipboard on reconnect. Pause stops both directions; Stop background connection disables automatic recovery."))
+                "Turn off Apply latest text on reconnect in Settings to preserve the phone clipboard on reconnect. Pause stops both directions while keeping the connection alive. Switching PCs requires an explicit Connect action; Forget requires confirmation. Only the previously active PC reconnects automatically."))
             GuideSection("05", "Something not connecting?", listOf(
                 "Keep both devices on the same private Wi-Fi. Guest networks, VPN routing, or client isolation can block local connections.",
-                "Allow ClipSync through Windows Firewall on your private network. If discovery is blocked, enter the PC's Wi-Fi IPv4 address in Advanced. Windows hotspot usually uses 192.168.137.1.",
+                "Allow ClipSync through Windows Firewall on your private network. If discovery is blocked, enter the PC's Wi-Fi IPv4 address under Enter IP address instead. Windows hotspot usually uses 192.168.137.1.",
                 "A certificate mismatch needs your attention. Never approve an unexpected pairing code. Pair again explicitly if you intentionally replaced a device.",
-                "Open Advanced → Diagnostics → Share logs. Include the app versions and what action failed. Logs exclude clipboard text; do not paste secrets into an issue."))
+                "Open Settings → Diagnostics → Share logs. Include the app versions and what action failed. Logs exclude clipboard text; do not paste secrets into an issue."))
             OutlinedButton(onClick = { links.openUri(PROJECT_URL) }, modifier = Modifier.fillMaxWidth()) { Text("Source code & documentation on GitHub") }
             TextButton(onClick = { links.openUri("$PROJECT_URL/issues") }, modifier = Modifier.fillMaxWidth()) { Text("Report an issue") }
             Text("Local-network text sync · No account · No cloud clipboard history", style = MaterialTheme.typography.bodySmall)

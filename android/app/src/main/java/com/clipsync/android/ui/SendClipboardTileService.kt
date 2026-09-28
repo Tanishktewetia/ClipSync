@@ -7,8 +7,11 @@ import android.service.quicksettings.TileService
 import com.clipsync.android.service.SyncRuntime
 
 class SendClipboardTileService : TileService() {
+    override fun onTileAdded() { super.onTileAdded(); com.clipsync.android.store.SyncSettings(this).tileAdded = true }
+    override fun onTileRemoved() { super.onTileRemoved(); com.clipsync.android.store.SyncSettings(this).tileAdded = false }
     override fun onStartListening() {
         super.onStartListening()
+        com.clipsync.android.store.SyncSettings(this).tileAdded = true
         SyncRuntime.initialize(this)
         qsTile?.apply {
             label = "Send to PC"

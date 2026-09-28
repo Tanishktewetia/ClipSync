@@ -2,33 +2,33 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!-- ClipSync Design System — Light Theme
-         Palette: Indigo primary (#4F46E5), Teal accent (#14B8A6), warm neutrals.
+         Palette: neutral surfaces with a restrained blue action color.
          Font: Segoe UI Variable (Win11 system font), fallback Segoe UI.
          Spacing: 8px grid. Corners: 12px cards, 8px buttons. -->
 
     <!-- Primary -->
-    <Color x:Key="PrimaryColor">#4F46E5</Color>
-    <Color x:Key="PrimaryHoverColor">#4338CA</Color>
-    <Color x:Key="PrimaryLightColor">#EEF2FF</Color>
+    <Color x:Key="PrimaryColor">#245C96</Color>
+    <Color x:Key="PrimaryHoverColor">#173C63</Color>
+    <Color x:Key="PrimaryLightColor">#E7EFF8</Color>
 
     <!-- Accent -->
-    <Color x:Key="AccentColor">#14B8A6</Color>
-    <Color x:Key="AccentLightColor">#CCFBF1</Color>
+    <Color x:Key="AccentColor">#326751</Color>
+    <Color x:Key="AccentLightColor">#E7F1EB</Color>
 
     <!-- Status colors -->
     <Color x:Key="ConnectedColor">#10B981</Color>
     <Color x:Key="WaitingColor">#F59E0B</Color>
-    <Color x:Key="PausedColor">#8B5CF6</Color>
+    <Color x:Key="PausedColor">#245C96</Color>
     <Color x:Key="ErrorColor">#EF4444</Color>
     <Color x:Key="DisconnectedColor">#6B7280</Color>
 
     <!-- Neutrals -->
-    <Color x:Key="BackgroundColor">#FFFFFF</Color>
-    <Color x:Key="SurfaceColor">#F9FAFB</Color>
+    <Color x:Key="BackgroundColor">#F7F8FA</Color>
+    <Color x:Key="SurfaceColor">#FFFFFF</Color>
     <Color x:Key="CardColor">#FFFFFF</Color>
-    <Color x:Key="BorderColor">#E5E7EB</Color>
-    <Color x:Key="TextPrimaryColor">#111827</Color>
-    <Color x:Key="TextSecondaryColor">#6B7280</Color>
+    <Color x:Key="BorderColor">#D7DCE3</Color>
+    <Color x:Key="TextPrimaryColor">#20242B</Color>
+    <Color x:Key="TextSecondaryColor">#505965</Color>
     <Color x:Key="TextOnPrimaryColor">#FFFFFF</Color>
 
     <!-- Brushes -->
@@ -56,8 +56,8 @@
     <FontFamily x:Key="AppFont">Segoe UI Variable, Segoe UI, sans-serif</FontFamily>
     <sys:Double x:Key="FontSizeTitle" xmlns:sys="clr-namespace:System;assembly=mscorlib">18</sys:Double>
     <sys:Double x:Key="FontSizeSubtitle" xmlns:sys="clr-namespace:System;assembly=mscorlib">13</sys:Double>
-    <sys:Double x:Key="FontSizeBody" xmlns:sys="clr-namespace:System;assembly=mscorlib">12</sys:Double>
-    <sys:Double x:Key="FontSizeCaption" xmlns:sys="clr-namespace:System;assembly=mscorlib">10</sys:Double>
+    <sys:Double x:Key="FontSizeBody" xmlns:sys="clr-namespace:System;assembly=mscorlib">14</sys:Double>
+    <sys:Double x:Key="FontSizeCaption" xmlns:sys="clr-namespace:System;assembly=mscorlib">12</sys:Double>
 
     <!-- Spacing -->
     <Thickness x:Key="CardPadding">16</Thickness>

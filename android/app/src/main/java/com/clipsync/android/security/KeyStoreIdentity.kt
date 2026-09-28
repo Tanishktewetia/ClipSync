@@ -32,6 +32,8 @@ class KeyStoreIdentity : X509ExtendedKeyManager() {
                 FileLogger.info("Keystore TLS identity created: policy=v2, prehashed ECDSA authorized")
             }
         }
+        val currentFingerprint = hash(store.getCertificate(ALIAS).encoded)
+        if (verifiedFingerprint != currentFingerprint) {
         // Catch unsupported authorizations locally before attempting the TLS handshake.
         val privateKey = store.getKey(ALIAS, null) as PrivateKey
         val keyInfo = KeyFactory.getInstance(privateKey.algorithm, "AndroidKeyStore")
@@ -46,7 +48,9 @@ class KeyStoreIdentity : X509ExtendedKeyManager() {
         verifier.initVerify(store.getCertificate(ALIAS).publicKey)
         verifier.update(digest)
         check(verifier.verify(signature)) { "TLS identity self-test failed" }
+        verifiedFingerprint = currentFingerprint
         FileLogger.info("Keystore TLS signing self-test passed: policy=v2")
+        }
     } }
     val fingerprint: String get() = hash(store.getCertificate(ALIAS).encoded)
     override fun getPrivateKey(alias: String?): PrivateKey? =
@@ -61,7 +65,7 @@ class KeyStoreIdentity : X509ExtendedKeyManager() {
         if (keyType?.contains("EC") == true) ALIAS else null
     override fun getServerAliases(keyType: String?, issuers: Array<out Principal>?): Array<String>? = null
     override fun chooseServerAlias(keyType: String?, issuers: Array<out Principal>?, socket: Socket?): String? = null
-    companion object { private val identityLock = Any(); private const val ALIAS = TlsIdentityPolicy.ALIAS }
+    companion object { private var verifiedFingerprint: String? = null; private val identityLock = Any(); private const val ALIAS = TlsIdentityPolicy.ALIAS }
 }
 
 /** Shared by production generation and the device-only Keystore regression tests. */

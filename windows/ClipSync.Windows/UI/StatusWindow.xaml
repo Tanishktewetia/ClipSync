@@ -14,7 +14,7 @@
                             Style="{StaticResource SecondaryButtonStyle}" Padding="0" />
                     <StackPanel>
                         <TextBlock Text="ClipSync" FontFamily="{DynamicResource AppFont}" FontSize="24" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" />
-                        <TextBlock x:Name="BuildLabel" Text="Text only" Margin="0,4,0,0" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" />
+                        <TextBlock x:Name="BuildLabel" Text="Text only" Margin="0,4,0,0" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" />
                     </StackPanel>
                 </DockPanel>
                 <Border x:Name="StatusCard" CornerRadius="14" Background="{DynamicResource SurfaceBrush}" Padding="18" Margin="0,0,0,16">
@@ -27,17 +27,19 @@
                         </StackPanel>
                     </Grid>
                 </Border>
-                <Border Background="{DynamicResource PrimaryLightBrush}" CornerRadius="10" Padding="14" Margin="0,0,0,14">
+                <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="14" Margin="0,0,0,14">
                     <StackPanel>
                         <TextBlock Text="Secure pairing" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource PrimaryBrush}"/>
                         <TextBlock x:Name="PairCodeText" Text="Open a pairing window when ready" TextWrapping="Wrap" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,6,0,0"/>
-                        <TextBlock Text="Compare the code on your phone within two minutes." TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,6,0,0"/>
+                        <TextBlock x:Name="PairHelpText" Text="Compare the code on your phone before confirming." TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,6,0,0"/>
                     </StackPanel>
                 </Border>
-                <Button Content="Pair new device" Click="Pair_Click" Style="{StaticResource ActionButtonStyle}" Margin="0,0,0,8"/>
+                <Button Content="Pair new device" Click="Pair_Click" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,0,8"/>
+                <Button Content="Forget paired phone…" Click="Forget_Click" Style="{StaticResource ActionButtonStyle}" Margin="0,0,0,8"/>
                 <Button x:Name="PauseButton" Content="Pause syncing" Click="Pause_Click" Style="{StaticResource ActionButtonStyle}" Margin="0,0,0,8"/>
                 <Button Content="Open log folder" Click="OpenLogFolder_Click" Style="{StaticResource ActionButtonStyle}" Margin="0,0,0,8"/>
-                <TextBlock Text="Hide this panel to keep sharing in the background." TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="4,8,4,6"/>
+                <CheckBox x:Name="StartWithWindowsCheckBox" Content="Start ClipSync with Windows" Checked="StartWithWindows_Changed" Unchecked="StartWithWindows_Changed" Margin="4,6,4,10" Foreground="{DynamicResource TextPrimaryBrush}" ToolTip="Launch quietly in the system tray when you sign in" AutomationProperties.Name="Start ClipSync with Windows"/>
+                <TextBlock Text="Hide this panel to keep sharing in the background." TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" Margin="4,8,4,6"/>
                 <Button Content="Quit ClipSync (stop sharing)" Click="Exit_Click" Style="{StaticResource SecondaryButtonStyle}"/>
             </StackPanel>
         </ScrollViewer>

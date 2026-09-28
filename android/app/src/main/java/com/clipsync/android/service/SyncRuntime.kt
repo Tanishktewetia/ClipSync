@@ -6,12 +6,17 @@ import com.clipsync.android.store.SyncSettings
 import com.clipsync.core.ReceiveSession
 import com.clipsync.core.ManualSendSession
 import com.clipsync.core.ManualSendResult
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-data class PairingPrompt(val id: Long, val code: String)
+data class PairingPrompt(val id: Long, val code: String, val name: String = "PC", val error: String? = null, val busy: Boolean = false)
 data class SyncUiState(
+    val devices: List<com.clipsync.android.store.PairedDevice> = emptyList(),
+    val searching: Boolean = false,
+    val waitingPairs: Int = 0,
+    val pairingMessage: String? = null,
+    val pairingFailed: Boolean = false,
+    val networkLabel: String = "Wi-Fi",
     val running: Boolean = false,
     val connected: Boolean = false,
     val connecting: Boolean = false,
@@ -37,25 +42,39 @@ object SyncRuntime {
     lateinit var sender: ManualSendSession
         private set
     var onManualSend: ((String, Boolean) -> ManualSendResult)? = null
+    var onPairCode: ((Long, String?) -> Unit)? = null
     private var initialized = false
-    private var decision: CompletableDeferred<Boolean>? = null
+    var feedbackRevision: Long = 0
+        private set
+    fun clearPairingFeedback() {
+        feedbackRevision++
+        update { it.copy(pairingMessage = null, pairingFailed = false) }
+    }
+    fun updatePairingFeedback(revision: Long, transform: (SyncUiState) -> SyncUiState) {
+        if (revision == feedbackRevision) update(transform)
+    }
     fun initialize(context: Context) {
         if (initialized) return
         val settings = SyncSettings(context)
         receiver = ReceiveSession(ClipboardWriter(context.applicationContext)::write)
         sender = ManualSendSession(receiver)
-        update { it.copy(paused = settings.paused, paired = settings.hasPin, address = settings.address) }
+        val devices = com.clipsync.android.store.DevicePolicy.restore(settings.devices())
+        update { it.copy(devices = devices, paused = settings.paused, paired = devices.isNotEmpty(), address = settings.address) }
         initialized = true
     }
-    fun update(transform: (SyncUiState) -> SyncUiState) { mutableState.value = transform(mutableState.value) }
-    fun requestPairing(id: Long, code: String): CompletableDeferred<Boolean> {
-        cancelPairing()
-        return CompletableDeferred<Boolean>().also { decision = it; update { state -> state.copy(pairing = PairingPrompt(id, code)) } }
+    fun resetSession(context: Context) {
+        sender.clear(); receiver.disconnect(); receiver.clearDeferred()
+        receiver = ReceiveSession(ClipboardWriter(context.applicationContext)::write)
+        sender = ManualSendSession(receiver)
     }
-    fun answerPairing(id: Long, accepted: Boolean) {
-        if (state.value.pairing?.id != id) return
-        decision?.complete(accepted)
-        update { it.copy(pairing = null) }
+    fun update(transform: (SyncUiState) -> SyncUiState) {
+        val before = mutableState.value
+        var next = transform(before)
+        if (!before.connected && next.connected) {
+            feedbackRevision++
+            next = next.copy(pairingMessage = null, pairingFailed = false)
+        }
+        mutableState.value = next
     }
-    fun cancelPairing() { decision?.cancel(); decision = null; update { it.copy(pairing = null) } }
+    fun cancelPairing() { update { it.copy(pairing = null, waitingPairs = 0, searching = false) } }
 }

@@ -13,6 +13,7 @@
     <Style x:Key="ActionButtonStyle" TargetType="Button">
         <Setter Property="FontFamily" Value="{DynamicResource AppFont}" />
         <Setter Property="FontSize" Value="{DynamicResource FontSizeBody}" />
+        <Setter Property="MinHeight" Value="44" />
         <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
         <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
@@ -52,10 +53,20 @@
         </Setter>
     </Style>
 
+    <Style x:Key="PrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource ActionButtonStyle}">
+        <Setter Property="Background" Value="{DynamicResource PrimaryBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextOnPrimaryBrush}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True"><Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" /></Trigger>
+            <Trigger Property="IsPressed" Value="True"><Setter Property="Foreground" Value="{DynamicResource TextOnPrimaryBrush}" /></Trigger>
+        </Style.Triggers>
+    </Style>
     <!-- Secondary / subtle button (e.g. Exit) -->
     <Style x:Key="SecondaryButtonStyle" TargetType="Button">
         <Setter Property="FontFamily" Value="{DynamicResource AppFont}" />
         <Setter Property="FontSize" Value="{DynamicResource FontSizeBody}" />
+        <Setter Property="MinHeight" Value="44" />
         <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderBrush" Value="Transparent" />

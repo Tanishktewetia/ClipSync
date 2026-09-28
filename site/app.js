@@ -18,9 +18,11 @@
   color.addEventListener('change', e => { if (!saved) applyTheme(e.matches ? 'dark' : 'light'); });
   document.querySelectorAll('.apk-download,.windows-download').forEach(link => link.addEventListener('click', () => {
     const windows = link.classList.contains('windows-download');
-    document.querySelectorAll('.download-status').forEach(status => { status.textContent = windows
-      ? 'Windows EXE download requested. Verify its checksum and follow Windows setup. This is an unsigned beta.'
-      : 'Android APK download requested. Open it from Downloads and follow the sideloading guide.'; });
+    document.querySelectorAll('.download-status').forEach(status => { status.textContent = link.origin !== location.origin
+      ? `GitHub releases opened. Select the latest ${windows ? 'Windows installer' : 'Android APK'} there.`
+      : windows
+        ? 'Windows installer download requested. Verify its checksum, then run setup. ClipSync will start in the system tray.'
+        : 'Android APK download requested. Open it from Downloads and follow the sideloading guide.'; });
   }));
   const checksum = document.querySelector('[data-checksum]');
   if (checksum) fetch('downloads/SHA256SUMS.txt').then(r => { if (!r.ok) throw new Error('Unavailable'); return r.text(); })
@@ -42,9 +44,9 @@
   const available = demo.querySelector('.available-send');
   const pointer = demo.querySelector('.tile-pointer');
   const labels = [...demo.querySelectorAll('.demo-timeline span')];
-  const duration = 26000;
-  const starts = {pc:0,tile:6500,phone:16500};
-  const snapshots = {pc:5400,tile:14700,phone:24600};
+  const duration = 33000;
+  const starts = {pair:26000,pc:0,tile:6500,phone:16500};
+  const snapshots = {pair:31800,pc:5400,tile:14700,phone:24600};
   const scenes = [
     {at:0,chapter:'pc',state:'pc-copy',title:'Copy on Windows. No extra action.',detail:'PC → phone is automatic while connected and unlocked.',message:'Copy text on Windows. ClipSync handles the transfer.',labels:['Copy','Transfer','Paste'],active:0},
     {at:1800,chapter:'pc',state:'pc-transfer',title:'Straight to your phone. Automatically.',detail:'Text travels over your local network, not through a cloud clipboard.',message:'Windows → Android · encrypted over your Wi-Fi.',labels:['Copy','Transfer','Paste'],active:1},
@@ -57,7 +59,11 @@
     {at:18700,chapter:'phone',state:'phone-panel',title:'Open Quick Settings. Your tile is already there.',detail:'Swipe down twice, just as you would for Wi-Fi or Bluetooth.',message:'No need to add the tile again. Unlock first if asked.',labels:['Copy','Tap tile','Send to PC'],active:1},
     {at:20500,chapter:'phone',state:'phone-tap',title:'Tap Send to PC to share this copy.',detail:'That one tap lets ClipSync read the text and send it to Windows.',message:'This is the intentional send action—not an automatic phone clipboard read.',labels:['Copy','Tap tile','Send to PC'],active:1},
     {at:22200,chapter:'phone',state:'phone-transfer',title:'Now the text travels back to Windows.',detail:'Phone → PC, over the same paired, encrypted connection.',message:'Android → Windows · sent only after tapping the tile.',labels:['Copy','Tap tile','Send to PC'],active:2},
-    {at:24300,chapter:'phone',state:'phone-received',title:'Paste on your PC. Both directions, explained.',detail:'PC → phone is automatic. Phone → PC is one deliberate tap.',message:'Ready on Windows. The walkthrough will repeat.',labels:['Copy','Tap tile','Send to PC'],active:2}
+    {at:24300,chapter:'phone',state:'phone-received',title:'Paste on your PC. Both directions, explained.',detail:'PC → phone is automatic. Phone → PC is one deliberate tap.',message:'Ready on Windows. The walkthrough will repeat.',labels:['Copy','Tap tile','Send to PC'],active:2},
+    {at:26000,chapter:'pair',state:'pair-windows',title:'On Windows, choose Pair new device.',detail:'ClipSync stays in the system tray. Open it and start one secure pairing window.',message:'Step 1 of 4 · Open the Windows tray app and choose Pair new device.',labels:['Windows','Android','Confirm'],active:0},
+    {at:27900,chapter:'pair',state:'pair-search',title:'On Android, tap Find a PC.',detail:'Keep both devices on the same Wi-Fi. No IP address is normally needed.',message:'Step 2 of 4 · Your phone discovers the waiting Windows PC nearby.',labels:['Windows','Android','Confirm'],active:1},
+    {at:29700,chapter:'pair',state:'pair-code',title:'Compare all six digits on both screens.',detail:'Only continue when the Windows and Android codes are identical.',message:'Step 3 of 4 · Matching codes protect you from pairing the wrong device.',labels:['Windows','Android','Confirm'],active:2},
+    {at:31600,chapter:'pair',state:'pair-done',title:'Confirm on Android. You are connected.',detail:'Pairing is saved. ClipSync will reconnect and start quietly with Windows.',message:'Step 4 of 4 · Pair once, then use the clipboard normally.',labels:['Windows','Android','Confirm'],active:2}
   ];
   let paused = false, visible = false, started = false, running = true;
   let elapsed = 0, cycle = 0, lastTime = null, frame = 0, lastScene = '';
@@ -123,6 +129,10 @@
     demo.querySelector('.pc-key').textContent=scene.state==='phone-received'?'V':'C';
     demo.querySelector('.phone-footnote').innerHTML=phoneMode?'Send with one tile tap<br><span>Not sent by copying alone</span>':'From Windows<br><span>Encrypted on your network</span>';
     demo.querySelector('.qs-hint').textContent=scene.chapter==='phone'?'Tap your shortcut to send this copied text':'Your shortcuts beside Wi-Fi and Bluetooth';
+    const pairStatus=demo.querySelector('.pair-status > span');
+    const pairDetail=demo.querySelector('.pair-status > small');
+    if(pairStatus)pairStatus.textContent=scene.state==='pair-done'?'Connected':'Waiting';
+    if(pairDetail)pairDetail.textContent=scene.state==='pair-done'?'Secure device connected. Clipboard sync is active.':'Pair your phone to start syncing.';
   }
   function tick(time) {
     frame=0;
@@ -138,10 +148,10 @@
     wake();
   }
   chapters.forEach(button=>button.addEventListener('click',()=>seek(button.dataset.chapterSelect,reduce.matches||paused)));
-  playButton.addEventListener('click',()=>seek('pc',reduce.matches||paused));
+  playButton.addEventListener('click',()=>seek('pair',reduce.matches||paused));
   const observer=new IntersectionObserver(entries=>{
     const entry=entries[0];visible=entry.isIntersecting;
-    if(visible&&!started)seek('pc',reduce.matches);else if(visible)wake();else stopFrames();
+    if(visible&&!started)seek('pair',reduce.matches);else if(visible)wake();else stopFrames();
   },{threshold:0});
   // Observe the graphic, not the whole tall walkthrough: mobile must not freeze mid-scene.
   observer.observe(demo.querySelector('.flow-canvas'));
@@ -178,9 +188,9 @@
   });
   function motionPreference(){
     decorativeAnimations.forEach(a=>a.cancel());decorativeAnimations=[];pauseButton.hidden=reduce.matches;
-    playButton.textContent=reduce.matches?'Show PC → phone':'Restart walkthrough';
+    playButton.textContent=reduce.matches?'Show pairing steps':'Restart walkthrough';
     if(reduce.matches){stopFrames();seek(demo.dataset.chapter||'pc',true);}
-    else if(!started&&visible)seek('pc');else wake();
+    else if(!started&&visible)seek('pair');else wake();
     renderScroll();
   }
   reduce.addEventListener('change',motionPreference);motionPreference();

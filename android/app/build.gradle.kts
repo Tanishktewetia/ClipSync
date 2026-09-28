@@ -12,15 +12,18 @@ android {
         applicationId = "com.clipsync.android"
         minSdk = 24
         targetSdk = 34
-        versionCode = 8
-        versionName = "0.7.0"
+        versionCode = 11
+        versionName = "0.8.5.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        resourceConfigurations += "en"
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

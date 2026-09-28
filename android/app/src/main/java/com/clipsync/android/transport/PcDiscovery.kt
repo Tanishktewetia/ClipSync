@@ -18,9 +18,8 @@ class PcDiscovery(context: Context, private val settings: SyncSettings) {
     private val nsd = context.getSystemService(NsdManager::class.java)
 
     @Suppress("DEPRECATION")
-    suspend fun <T> race(pairing: Boolean, connect: suspend (PcEndpoint) -> T): T = coroutineScope {
-        val candidates = Channel<PcEndpoint>(32)
-        val results = Channel<Result<T>>(32)
+    suspend fun scan(duration: Long = 30000, connect: suspend (PcEndpoint) -> Unit) = coroutineScope {
+        val candidates = Channel<PcEndpoint>(Channel.UNLIMITED)
         val seen = mutableSetOf<PcEndpoint>()
         val jobs = mutableListOf<Job>()
         val resolveQueue = Channel<NsdServiceInfo>(16)
@@ -58,34 +57,32 @@ class PcDiscovery(context: Context, private val settings: SyncSettings) {
                 candidates.trySend(PcEndpoint("192.168.137.1"))
         }
         if (settings.address.isNotBlank()) candidates.trySend(PcEndpoint(settings.address))
+        settings.devices().sortedByDescending { it.isActive }.forEach { d -> val parts = d.lastKnownAddress.split(':'); if (parts[0].isNotBlank()) candidates.trySend(PcEndpoint(parts[0], parts.getOrNull(1)?.toIntOrNull() ?: 48653)) }
         if (settings.lastAddress.isNotBlank()) candidates.trySend(PcEndpoint(settings.lastAddress, settings.lastPort))
         try { nsd.discoverServices("_clipsync._tcp.", NsdManager.PROTOCOL_DNS_SD, listener); discoveryStarted = true } catch (_: RuntimeException) { }
-        var failure: Throwable? = null
         val producer = launch {
             for (endpoint in candidates) {
-                if (seen.size >= 16 || !seen.add(endpoint)) continue
+                if (!seen.add(endpoint)) continue
                 jobs += launch(Dispatchers.IO) {
-                    try { results.send(Result.success(connect(endpoint))) }
+                    try { connect(endpoint) }
                     catch (e: CancellationException) { throw e }
-                    catch (e: Exception) { results.send(Result.failure(e)) }
+                    catch (_: Exception) { }
                 }
             }
         }
         try {
-            withTimeout(14000) {
-                while (true) {
-                    val result = results.receive()
-                    if (result.isSuccess) return@withTimeout result.getOrThrow()
-                    failure = result.exceptionOrNull()
-                }
-                @Suppress("UNREACHABLE_CODE") error("No candidate")
-            }
-        } catch (e: TimeoutCancellationException) {
-            throw java.io.IOException("No authenticated PC found on Wi-Fi", failure)
+            delay(duration)
         } finally {
             producer.cancel(); jobs.forEach { it.cancel() }; resolver.cancel()
-            candidates.close(); resolveQueue.close(); results.close()
+            candidates.close(); resolveQueue.close()
             if (discoveryStarted) runCatching { nsd.stopServiceDiscovery(listener) }
         }
+    }
+    suspend fun <T> race(pairing: Boolean, connect: suspend (PcEndpoint) -> T): T = coroutineScope {
+        val result = CompletableDeferred<T>()
+        val worker = launch { scan(14000) { endpoint -> result.complete(connect(endpoint)) } }
+        try { withTimeout(14000) { result.await() } }
+        catch (e: TimeoutCancellationException) { throw java.io.IOException("No authenticated PC found on Wi-Fi", e) }
+        finally { worker.cancel() }
     }
 }

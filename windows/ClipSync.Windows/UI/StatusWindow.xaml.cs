@@ -15,7 +15,10 @@ namespace ClipSync.Windows.UI;
 public partial class StatusWindow : Window
 {
     private readonly Action _pair;
+    private readonly Action? _forget;
     private readonly Func<bool> _pause;
+    private readonly Func<bool, bool>? _startupChanged;
+    private bool _updatingStartup;
     private readonly PopoverVisibility _visibility = new();
     private bool _suppressDeactivation;
     private bool _closingForExit;
@@ -23,11 +26,15 @@ public partial class StatusWindow : Window
     private Forms.Screen? _anchorScreen;
     private readonly DispatcherTimer _deactivationGuard;
 
-    public StatusWindow(Action pair, Func<bool> pause)
+    public StatusWindow(Action pair, Func<bool> pause, Action? forget = null, bool startWithWindows = false, Func<bool, bool>? startupChanged = null)
     {
-        _pair = pair; _pause = pause;
+        _pair = pair; _pause = pause; _forget = forget; _startupChanged = startupChanged;
         InitializeComponent();
-        BuildLabel.Text = $"v{typeof(StatusWindow).Assembly.GetName().Version?.ToString(3)} · Text only";
+        _updatingStartup = true;
+        StartWithWindowsCheckBox.IsChecked = startWithWindows;
+        _updatingStartup = false;
+
+        BuildLabel.Text = $"v{typeof(StatusWindow).Assembly.GetName().Version?.ToString(4)} · Text only";
         WindowStartupLocation = WindowStartupLocation.Manual;
         ShowActivated = true;
         _deactivationGuard = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
@@ -44,7 +51,13 @@ public partial class StatusWindow : Window
         StatusIcon.Text = icon; StatusIcon.Foreground = (MediaBrush)FindResource(brush);
         PauseButton.Content = state == "Paused" ? "Resume syncing" : "Pause syncing";
     }
-    public void SetPairCode(string code) => PairCodeText.Text = code.All(char.IsDigit) && code.Length == 6 ? "Your code: " + code : code;
+    public void SetPairCode(string code) {
+        var isCode = code.All(char.IsDigit) && code.Length == 6;
+        PairCodeText.Text = isCode ? "Your code: " + code : code;
+        PairHelpText.Text = isCode ? "Compare this code on your phone before confirming."
+            : code.Contains("identity rejected", StringComparison.OrdinalIgnoreCase) ? "Only forget the pairing if you intend to replace the saved phone identity."
+            : "Pairing adds trust; connect explicitly from the phone's device tile.";
+    }
     public void TogglePopover() { if (_visibility.VisibleRequested) HidePopover(); else ShowPopover(); }
 
     public void ShowPopover()
@@ -114,8 +127,29 @@ public partial class StatusWindow : Window
     public void CloseForExit() { _closingForExit = true; _deactivationGuard.Stop(); Close(); }
     private void Window_Deactivated(object sender, EventArgs e) { if (!_suppressDeactivation) HidePopover(); }
     private void Hide_Click(object sender, RoutedEventArgs e) => HidePopover();
+    private void Forget_Click(object sender, RoutedEventArgs e)
+    {
+        if (_forget == null) return;
+        _suppressDeactivation = true;
+        try {
+            if (System.Windows.MessageBox.Show(this,
+                "Disconnect and forget the saved phone? You will need to compare a new pairing code before it can reconnect. No other phone will be trusted automatically.",
+                "Forget paired phone?", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes)
+                _forget();
+        } finally { _suppressDeactivation = false; }
+    }
     private void Pair_Click(object sender, RoutedEventArgs e) => _pair();
     private void Pause_Click(object sender, RoutedEventArgs e) => _pause();
+    private void StartWithWindows_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_updatingStartup || _startupChanged is null) return;
+        var requested = StartWithWindowsCheckBox.IsChecked == true;
+        if (_startupChanged(requested)) return;
+        _updatingStartup = true;
+        StartWithWindowsCheckBox.IsChecked = !requested;
+        _updatingStartup = false;
+        System.Windows.MessageBox.Show(this, "ClipSync could not update the Windows startup setting. Check the log folder for details.", "Startup setting", MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
     private void OpenLogFolder_Click(object sender, RoutedEventArgs e)
     {
         try { Process.Start("explorer.exe", FileLogger.Instance.LogDirectory); }

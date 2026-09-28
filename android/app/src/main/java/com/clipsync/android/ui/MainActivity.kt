@@ -33,12 +33,8 @@ import com.clipsync.android.ui.theme.ClipSyncTheme
 
 class MainActivity : ComponentActivity() {
     private lateinit var settings: SyncSettings
-    private var pendingAction: String? = null
-    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        val action = pendingAction; pendingAction = null
-        if (granted && action != null) startConnection(action)
-        else SyncRuntime.update { it.copy(error = "Notification permission was declined. Tap Connect again to allow the background status notification.") }
-    }
+    private var setupRevision by mutableIntStateOf(0)
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { setupRevision++ }
     private val saveDocument = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) exportLogs(uri)
     }
@@ -46,38 +42,49 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         settings = SyncSettings(this)
-        pendingAction = savedInstanceState?.getString("pending_connection")
         ClipboardReadStore.initialize(this)
         SyncRuntime.initialize(this)
         val lastCrash = CrashHandler.consumeLastCrash()
-        FileLogger.info("Phase 7 main screen opened")
+        FileLogger.info("Phase 8.5 dashboard/setup opened")
         setContent {
             var replay by remember { mutableStateOf(settings.replayOnConnect) }
+            var step by remember { mutableIntStateOf(settings.onboardingStep.coerceIn(0, 3)) }
+            var done by remember { mutableStateOf(settings.onboardingDone) }
+            val revision = setupRevision
+            val notifications = remember(revision) { androidx.core.app.NotificationManagerCompat.from(this).areNotificationsEnabled() }
+            val battery = remember(revision) { getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName) }
+            val tile = remember(revision) { settings.tileAdded || settings.tileDismissed }
             ClipSyncTheme {
-                MainScreen(
-                    state = SyncRuntime.state.collectAsState().value,
-                    lastCrash = lastCrash,
-                    replayOnConnect = replay, onReplayChanged = { replay = it; settings.replayOnConnect = it },
-                    onConnect = ::connect,
-                    onPause = ::pause,
-                    onStop = ::stopConnection,
-                    onAddTile = ::addSendTile,
-                    onPairingAnswer = SyncRuntime::answerPairing,
-                    onCopyLogs = ::copyLogs,
-                    onShareLogs = ::shareLogs,
-                    onSaveLogs = ::saveLogs,
-                    onBatterySettings = { runCatching { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } },
-                )
+                if (!done) OnboardingScreen(step, notifications, battery, settings.tileAdded,
+                    advance = { step = it; settings.onboardingStep = it },
+                    finish = { done = true; settings.onboardingDone = true },
+                    requestNotifications = ::requestNotifications, requestBattery = ::requestBattery, addTile = ::addSendTile)
+                else MainScreen(state = SyncRuntime.state.collectAsState().value, lastCrash = lastCrash,
+                    notifications = notifications, battery = battery, tile = tile,
+                    onNotifications = ::requestNotifications, onBattery = ::requestBattery, onTile = ::addSendTile,
+                    onDismissTile = { settings.tileDismissed = true; setupRevision++ },
+                    onRedo = { step = 0; settings.onboardingStep = 0; done = false; settings.onboardingDone = false },
+                    onConnect = { command(ClipboardWatchService.ACTION_CONNECT, it) },
+                    onPair = ::pair, onPause = ::pause,
+                    onForget = { command(ClipboardWatchService.ACTION_FORGET, it) },
+                    onRename = { id, name ->
+                        val devices = SyncRuntime.state.value.devices.map { if (it.id == id) it.copy(displayName = name) else it }
+                        settings.saveDevices(devices); SyncRuntime.update { it.copy(devices = devices) }
+                    },
+                    onPairCode = { id, code -> SyncRuntime.onPairCode?.invoke(id, code) },
+                    onCopyLogs = ::copyLogs, onShareLogs = ::shareLogs, onSaveLogs = ::saveLogs,
+                    replayOnConnect = replay, onReplayChanged = { replay = it; settings.replayOnConnect = it })
             }
         }
         // Restarts only an already enabled, paired discovery session.
-        if (ClipboardReadStore.isServiceEnabled(this) && !SyncRuntime.state.value.running && settings.hasPin) {
+        if (ClipboardReadStore.isServiceEnabled(this) && !SyncRuntime.state.value.running && settings.devices().isNotEmpty()) {
             runCatching { ContextCompat.startForegroundService(this, Intent(this, ClipboardWatchService::class.java)) }
                 .onFailure { SyncRuntime.update { state -> state.copy(error = "Tap Reconnect to restart the background connection.") } }
         }
     }
     override fun onResume() {
         super.onResume()
+        setupRevision++
         if (::settings.isInitialized && SyncRuntime.state.value.running) {
             startService(Intent(this, ClipboardWatchService::class.java).setAction(ClipboardWatchService.ACTION_RECOVER))
         }
@@ -88,47 +95,43 @@ class MainActivity : ComponentActivity() {
                 getSystemService(android.app.StatusBarManager::class.java).requestAddTileService(
                     android.content.ComponentName(this, SendClipboardTileService::class.java), "Send to PC",
                     android.graphics.drawable.Icon.createWithResource(this, com.clipsync.android.R.drawable.ic_clipsync_status), mainExecutor,
-                ) { result -> FileLogger.info("Quick Settings tile request result=$result") }
+                ) { result ->
+                    if (result == android.app.StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED || result == android.app.StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED) settings.tileAdded = true
+                    setupRevision++
+                }
             } catch (e: Exception) { FileLogger.warn("Tile add request unavailable: "+e.javaClass.simpleName) }
         } else {
             Toast.makeText(this, "Swipe down twice, tap Edit, and add Send to PC.", Toast.LENGTH_LONG).show()
         }
     }
-    override fun onSaveInstanceState(outState: Bundle) {
-        outState.putString("pending_connection", pendingAction)
-        super.onSaveInstanceState(outState)
-    }
-    private fun connect(address: String, pairing: Boolean) {
-        val valid = try { if (address.isBlank()) "" else ManualAddress.parse(address) } catch (e: IllegalArgumentException) {
-            SyncRuntime.update { it.copy(error = e.message) }; return
-        }
-        settings.address = valid
-        SyncRuntime.update { it.copy(address = valid, error = null) }
-        val action = if (pairing) ClipboardWatchService.ACTION_PAIR else ClipboardWatchService.ACTION_CONNECT
-        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            pendingAction = action
+    private fun requestNotifications() {
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED && !settings.notificationRequested) {
+            settings.notificationRequested = true
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        } else startConnection(action)
+        } else runCatching {
+            val intent = if (Build.VERSION.SDK_INT >= 26) Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                else Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+            startActivity(intent)
+        }
     }
-    private fun startConnection(action: String) {
+    private fun requestBattery() {
+        if (getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)) return
+        runCatching { startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))) }
+            .onFailure { runCatching { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } }
+    }
+    private fun pair(address: String, replacement: String?) {
+        try { if (address.isNotBlank()) com.clipsync.android.service.PairingController.endpoint(address) }
+        catch (e: IllegalArgumentException) { SyncRuntime.update { it.copy(pairingMessage = e.message, pairingFailed = true) }; return }
+        command(ClipboardWatchService.ACTION_PAIR, replacement, address)
+    }
+    private fun command(action: String, deviceId: String? = null, address: String = "") {
         ClipboardReadStore.setServiceEnabled(true)
         try {
-            ContextCompat.startForegroundService(this, Intent(this, ClipboardWatchService::class.java).setAction(action))
-            requestBatteryExemptionOnce()
+            ContextCompat.startForegroundService(this, Intent(this, ClipboardWatchService::class.java).setAction(action)
+                .putExtra("deviceId", deviceId).putExtra("address", address))
         } catch (e: Exception) {
-            ClipboardReadStore.setServiceEnabled(false)
-            FileLogger.warn("Service start failed: "+e.javaClass.simpleName)
-            SyncRuntime.update { it.copy(error = "Could not start the background connection. Try connecting again.") }
-        }
-    }
-    private fun requestBatteryExemptionOnce() {
-        if (settings.batteryRequested) return
-        settings.batteryRequested = true
-        if (getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)) return
-        try {
-            startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
-        } catch (e: Exception) {
-            FileLogger.warn("Battery exemption prompt unavailable: "+e.javaClass.simpleName)
+            FileLogger.warn("Service start failed: " + e.javaClass.simpleName)
+            SyncRuntime.update { it.copy(error = "Could not start background sync. Try again from the dashboard.") }
         }
     }
     private fun pause(paused: Boolean) {
@@ -138,10 +141,6 @@ class MainActivity : ComponentActivity() {
         SyncRuntime.update { it.copy(paused = paused, pendingUnlock = SyncRuntime.receiver.hasDeferred) }
         if (SyncRuntime.state.value.running) startService(Intent(this, ClipboardWatchService::class.java)
             .setAction(ClipboardWatchService.ACTION_PAUSE).putExtra("paused", paused))
-    }
-    private fun stopConnection() {
-        ClipboardReadStore.setServiceEnabled(false)
-        stopService(Intent(this, ClipboardWatchService::class.java))
     }
     private fun copyLogs() {
         val text = FileLogger.getRecentLogs()

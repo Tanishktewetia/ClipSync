@@ -5,29 +5,29 @@
          Same palette structure as LightTheme, with inverted neutrals. -->
 
     <!-- Primary (slightly brighter for dark backgrounds) -->
-    <Color x:Key="PrimaryColor">#818CF8</Color>
-    <Color x:Key="PrimaryHoverColor">#A5B4FC</Color>
-    <Color x:Key="PrimaryLightColor">#1E1B4B</Color>
+    <Color x:Key="PrimaryColor">#9CC7FF</Color>
+    <Color x:Key="PrimaryHoverColor">#BEDBFF</Color>
+    <Color x:Key="PrimaryLightColor">#263B52</Color>
 
     <!-- Accent -->
-    <Color x:Key="AccentColor">#2DD4BF</Color>
-    <Color x:Key="AccentLightColor">#134E4A</Color>
+    <Color x:Key="AccentColor">#A0D3B5</Color>
+    <Color x:Key="AccentLightColor">#253C30</Color>
 
     <!-- Status colors (slightly adjusted for dark backgrounds) -->
     <Color x:Key="ConnectedColor">#34D399</Color>
     <Color x:Key="WaitingColor">#FBBF24</Color>
-    <Color x:Key="PausedColor">#A78BFA</Color>
+    <Color x:Key="PausedColor">#9CC7FF</Color>
     <Color x:Key="ErrorColor">#F87171</Color>
     <Color x:Key="DisconnectedColor">#9CA3AF</Color>
 
     <!-- Neutrals (inverted) -->
-    <Color x:Key="BackgroundColor">#111827</Color>
-    <Color x:Key="SurfaceColor">#1F2937</Color>
-    <Color x:Key="CardColor">#1F2937</Color>
-    <Color x:Key="BorderColor">#374151</Color>
-    <Color x:Key="TextPrimaryColor">#F9FAFB</Color>
-    <Color x:Key="TextSecondaryColor">#9CA3AF</Color>
-    <Color x:Key="TextOnPrimaryColor">#FFFFFF</Color>
+    <Color x:Key="BackgroundColor">#181A1D</Color>
+    <Color x:Key="SurfaceColor">#23262B</Color>
+    <Color x:Key="CardColor">#23262B</Color>
+    <Color x:Key="BorderColor">#444B55</Color>
+    <Color x:Key="TextPrimaryColor">#F5F6F8</Color>
+    <Color x:Key="TextSecondaryColor">#C1C7D0</Color>
+    <Color x:Key="TextOnPrimaryColor">#102A45</Color>
 
     <!-- Brushes -->
     <SolidColorBrush x:Key="PrimaryBrush" Color="{StaticResource PrimaryColor}" />
@@ -54,8 +54,8 @@
     <FontFamily x:Key="AppFont">Segoe UI Variable, Segoe UI, sans-serif</FontFamily>
     <sys:Double x:Key="FontSizeTitle" xmlns:sys="clr-namespace:System;assembly=mscorlib">18</sys:Double>
     <sys:Double x:Key="FontSizeSubtitle" xmlns:sys="clr-namespace:System;assembly=mscorlib">13</sys:Double>
-    <sys:Double x:Key="FontSizeBody" xmlns:sys="clr-namespace:System;assembly=mscorlib">12</sys:Double>
-    <sys:Double x:Key="FontSizeCaption" xmlns:sys="clr-namespace:System;assembly=mscorlib">10</sys:Double>
+    <sys:Double x:Key="FontSizeBody" xmlns:sys="clr-namespace:System;assembly=mscorlib">14</sys:Double>
+    <sys:Double x:Key="FontSizeCaption" xmlns:sys="clr-namespace:System;assembly=mscorlib">12</sys:Double>
 
     <!-- Spacing (same as light) -->
     <Thickness x:Key="CardPadding">16</Thickness>

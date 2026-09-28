@@ -1,53 +1,92 @@
 # ClipSync
 
-Local-network clipboard sync for **Windows and Android**.
+<p align="center">
+	<img src="site/mark.svg" width="88" height="88" alt="ClipSync mark">
+</p>
 
-- PC → phone: automatic while connected and unlocked.
-- Phone → PC: copy, then tap **Send clipboard now** in the notification or **Send to PC** in Quick Settings. Copying alone never sends.
-- No account, cloud clipboard history, USB, Developer options, root, helper app, or keyboard switching.
-- Mutual TLS 1.3, six-digit code-confirmed pairing, pinned identities, discovery and reconnect.
+<h3 align="center">Your clipboard, in sync. Your devices, still yours.</h3>
 
-**Phase 7 / 0.7.0 is built for manual acceptance testing.** The APK is a debug-signed beta, not a public production release. The generated website is local, not deployed.
+<p align="center">
+	<img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=600&size=18&duration=2800&pause=750&color=138A82&center=true&vCenter=true&width=620&lines=Windows+%E2%86%94+Android;Automatic+PC+%E2%86%92+phone;One+deliberate+tap+to+send+back;Private+sync+over+your+local+network" alt="Windows and Android clipboard sync, over your local network">
+</p>
 
-## First connection
+<p align="center">
+	<img src="https://img.shields.io/badge/Windows-desktop-30343B?logo=windows&logoColor=white" alt="Windows desktop">
+	<img src="https://img.shields.io/badge/Android-10%2B-138A82?logo=android&logoColor=white" alt="Android 10 and newer">
+	<img src="https://img.shields.io/badge/Transport-TLS%201.3-C18B42" alt="TLS 1.3 transport">
+	<img src="https://img.shields.io/badge/Network-local%20only-30343B" alt="Local network only">
+</p>
 
-1. Install the matching builds. Secure Android syncing requires Android 10+ with TLS 1.3; the target test phone is the Edge 20 Pro on Android 13.
-2. Join the same private Wi-Fi, or connect the phone to the Windows PC hotspot.
-3. Choose **Pair new device** in the Windows tray app, then **Find & pair my PC** on Android.
-4. Compare all six digits, confirm only if they match, and wait for Connected.
-5. Copy on Windows, then paste on the unlocked phone. In the other direction, copy on the phone and deliberately tap the notification action or tile.
+ClipSync keeps the clipboard moving between a Windows PC and an Android phone on the same Wi-Fi or PC hotspot. Pair the devices with a six-digit code, then use your clipboard without an account or a cloud history.
 
-A **Quick Settings tile** is a shortcut beside Wi-Fi/Bluetooth when you swipe down twice. Android's main screen and offline Guide explain how to add it. The notification action is an alternative; adding a tile is optional.
+> **Testing build:** the Android APK is debug-signed and the Windows installer is unsigned. These are beta builds for manual testing, not production releases. Android secure sync requires a TLS 1.3-capable device (Android 10+ on the current implementation).
 
-## Guides
+## The flow
 
-- [Complete setup, tile, reconnect and privacy guide](site/docs.html) — view through the generated site for the rendered version.
-- [Website build, preview and publishing](site/README.md).
-- [Phase 7 report and exact no-USB tests](docs/phase-7-report.md).
-- [Phase 7 wire extension](docs/phase-7-protocol.md).
-- [Phase history](LOG.md), [plan](plan.md), [architecture](architecture.md). Historical design assumptions are not silently rewritten; reports document actual behavior.
-- [Report an issue](https://github.com/Tanishktewetia/ClipSync/issues).
+| Windows to Android | Android to Windows |
+| --- | --- |
+| Copy on the PC. Text syncs automatically while connected; paste it on the unlocked phone. | Copy on the phone, then tap **Send clipboard now** in the notification or **Send to PC** in Quick Settings. |
+| No phone-side tap for incoming PC text. | Copying alone never sends clipboard content. |
 
-## Build locally
+```mermaid
+sequenceDiagram
+		participant PC as Windows PC
+		participant Phone as Android phone
+		PC->>Phone: Paired TLS 1.3 connection
+		Note over PC,Phone: PC clipboard is delivered automatically
+		Phone->>PC: User taps Send clipboard now
+		Note over PC,Phone: No account or cloud clipboard history
+```
 
-Current projects require .NET **10** SDK, JDK 17 and Android SDK platform 34. Node.js packages the optional website. No new application package dependencies were introduced in Phase 7.
+## What it does
 
-From the repository root, use scripts/build-windows.ps1, scripts/run-windows.ps1 and scripts/build-android.ps1. Quit the existing Windows tray instance before launching a replacement; the launcher never kills it for you.
+- **Pairs explicitly:** compare and confirm a six-digit code before trusting a device.
+- **Keeps devices separate:** encrypted paired-device storage, identity pinning, and a deliberate Connect action for each PC.
+- **Finds the connection again:** local discovery, reconnect, and a selected-device-only recovery policy.
+- **Keeps sending intentional:** Android never silently reads clipboard changes to send them to the PC.
+- **Stays local:** no account, cloud clipboard history, USB, root, helper app, Developer options, or keyboard switching.
 
-Build the matching APK, then run **scripts/build-windows-download.ps1** for the self-contained Windows x64 EXE. Run **node site/build.cjs**, then **node site/serve.cjs**. Preview at http://127.0.0.1:4177. The Windows EXE, APK and website are in ignored dist/. The Windows download is unsigned, portable and includes its .NET runtime; the Android APK remains debug-signed. Both real downloads and their SHA-256 checksums are listed on the page. Use Telegram or scripts/serve-apk.ps1 for no-USB sideloading. The website may also be deliberately served on private Wi-Fi using **node site/serve.cjs --lan**; stop that server when finished.
+Clipboard sync is text-only. Images and automatic hotspot management are not included. Android may show its own clipboard privacy indicator; ClipSync cannot suppress operating-system UI.
 
-## Background and reconnect
+## Get connected
 
-Closing Android's screen leaves its enabled foreground service running. After reboot, unlock once. A force-stop in Android Settings requires reopening the app. While locked, only the latest incoming PC text waits in memory.
+1. Install the matching Windows and Android builds, then connect both devices to the same private Wi-Fi or the PC hotspot.
+2. In the Windows tray app, choose **Pair new device**. In ClipSync on Android, choose **Find & pair my PC**.
+3. Compare the six-digit codes. Confirm only when both screens show the same code.
+4. Select the paired PC to connect. Copy on Windows and paste on the unlocked phone.
+5. To send the other way, copy on Android and tap the notification action or Quick Settings tile.
 
-Newest **known** text is reconciled with logical counters and a deterministic device-ID tie-break. Phone text is known only after an explicit send tap. Pending text is memory-only and lost on process/service death or reboot. Disable **Apply latest text on reconnect** in Android Advanced or the Windows tray menu to preserve that side's clipboard when connecting.
+The Android app includes an onboarding guide for optional permissions and adding the Quick Settings tile. The notification action is an alternative; adding the tile is optional.
 
-Pause stops both directions. Stop background connection disables Android recovery. Images and hotspot management are not included. Sensitive flags hide Android preview contents but cannot guarantee the OS shows no indicator.
+## Build from source
 
-## Diagnostics
+**Tooling:** .NET 10 SDK, JDK 17, Android SDK Platform 34, and PowerShell. Node.js is only needed to build or preview the website.
 
-Android: Advanced → Diagnostics → Share logs / Save to Downloads. Windows: Open Log Folder in the tray menu. Include versions, numbered test step, network mode and expected/actual behavior. Never send confidential clipboard text. Logs contain status, lengths and short hash prefixes only.
+```powershell
+# Build the Windows app and Android beta APK
+.\scripts\build-windows.ps1
+.\scripts\build-android.ps1
 
-## Website walkthrough
+# Build the compact Windows installer
+.\scripts\build-windows-download.ps1
 
-The preview loops through automatic PC → phone copying, one-time Quick Settings tile setup, then copying on Android and tapping Send to PC before phone → Windows transfer. Chapter buttons let you jump to any part; Pause stops motion, and reduced-motion users get static steps. The synthetic demonstration never accesses your real clipboard.
+# Optional: build and preview the website
+node site/build.cjs
+node site/serve.cjs
+```
+
+The Android build creates a debug-signed APK. The compact Windows installer installs per-user and downloads the official .NET 10 Desktop Runtime only if it is missing. Build outputs are written under the locally ignored `dist/` directory. Quit an existing Windows tray instance before launching a replacement.
+
+## Privacy and troubleshooting
+
+Android's enabled foreground service supports background connection recovery. Android requires an explicit user action to read and send phone clipboard text. Incoming text queued while the phone is locked is held in memory; pending text can be lost if the service or process stops. Pause stops sync in both directions.
+
+For diagnostics, use **Advanced → Diagnostics → Share logs / Save to Downloads** on Android or **Open Log Folder** from the Windows tray menu. When reporting an issue, include the app versions, network mode, test step, and expected versus actual result. Do not send private clipboard text.
+
+The animated headline above is decorative and hosted by [readme-typing-svg](https://github.com/DenverCoder1/readme-typing-svg); it does not run code from this repository.
+
+<p align="center">
+	<a href="https://github.com/Tanishktewetia/ClipSync/issues">Report a problem</a>
+	&nbsp;·&nbsp;
+	<a href="site/index.html">Explore the product walkthrough</a>
+</p>

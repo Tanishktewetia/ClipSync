@@ -2,7 +2,7 @@
 $ErrorActionPreference = "Stop"
 
 $distDir = Join-Path $PSScriptRoot "..\dist"
-$apks = Get-ChildItem $distDir -Filter "ClipSync-debug-*.apk" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
+$apks = Get-ChildItem $distDir -Filter "ClipSync-*.apk" -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^ClipSync-(beta|debug)-.*\.apk$' } | Sort-Object LastWriteTime -Descending
 
 if (-not $apks -or $apks.Count -eq 0) {
     Write-Error "No APK found in $distDir. Run build-android.ps1 first."

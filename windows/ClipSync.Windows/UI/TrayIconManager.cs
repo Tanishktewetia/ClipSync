@@ -73,6 +73,8 @@ public sealed class TrayIconManager : IDisposable
         return Icon.FromHandle(bitmap.GetHicon());
     }
 
+    public void ShowNotice(string message) => _notifyIcon.ShowBalloonTip(5000, "ClipSync", message, ToolTipIcon.Info);
+
     public void Dispose()
     {
         _notifyIcon.Visible = false;

@@ -44,3 +44,21 @@ LOG.md
 
 # Automated test reports and generated identities remain local
 TestResults/
+
+# Keep local notes and phase reports out of Git; publish only the root README
+*.md
+!/README.md
+/docs/
+
+# Test sources and preview/verification fixtures stay local
+/core-spec/
+**/src/test/
+**/src/androidTest/
+**/*.Tests/
+**/*.TestClient/
+**/DashboardPreviews.kt
+/scripts/verify-onboarding-contract.cjs
+/scripts/verify-ui-contrast.cjs
+/scripts/verify-windows-installer.ps1
+/site/verify-downloads.cjs
+/site/verify-motion.cjs
